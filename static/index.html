@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="theme-color" content="#111827"/>
+  <link rel="manifest" href="/manifest.webmanifest"/>
+  <title>手機股票雷達</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1220;color:#f8fafc}
+    body{margin:0;padding:16px;max-width:760px;margin:auto}
+    h1{font-size:24px;margin:8px 0 4px}.sub{color:#94a3b8;margin-bottom:14px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    button,input{border-radius:12px;border:1px solid #334155;background:#111827;color:#fff;padding:12px;font-size:16px}
+    button{font-weight:700;cursor:pointer}.primary{background:#2563eb;border-color:#2563eb}
+    input{flex:1;min-width:220px}
+    .card{background:#111827;border:1px solid #273449;border-radius:16px;padding:14px;margin:10px 0}
+    .title{display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .name{font-size:20px;font-weight:800}.sym{font-size:13px;color:#94a3b8}
+    .price{font-size:30px;font-weight:900;margin:8px 0}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .cell{background:#0f172a;border-radius:10px;padding:8px}.label{font-size:12px;color:#94a3b8}.val{font-weight:700}
+    .up{color:#f87171}.down{color:#4ade80}.muted{color:#94a3b8}
+    .status{font-size:13px;margin-top:8px;color:#cbd5e1}
+    .note{font-size:13px;color:#94a3b8;line-height:1.5;margin-top:16px}
+  </style>
+</head>
+<body>
+  <h1>📈 手機股票雷達</h1>
+  <div class="sub">Yahoo 股市行情報價橋接版（雲端手機/PWA）</div>
+
+  <div class="row">
+    <button class="primary" onclick="loadAll()">更新全部</button>
+    <button onclick="addToHome()">安裝 App</button>
+    <button id="autoBtn" onclick="toggleAuto()">自動更新：關</button>
+  </div>
+
+  <div class="row">
+    <input id="url" value="https://tw.stock.yahoo.com/future/WTX%26" />
+    <button onclick="loadUrl()">抓網址</button>
+  </div>
+
+  <div id="cards"></div>
+
+  <div class="note">
+    目前預設：6770 力積電、2609 陽明、WTX&amp; 台指期近一。<br/>
+    此版本只讀公開行情，不含下單功能。Yahoo 若改版，部分欄位可能暫時抓不到，會顯示「—」，不猜數字。
+  </div>
+
+<script>
+let deferredPrompt;
+let autoTimer=null;
+function toggleAuto(){
+  const btn=document.getElementById('autoBtn');
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; btn.textContent='自動更新：關'; return; }
+  autoTimer=setInterval(loadAll, 60000);
+  btn.textContent='自動更新：60秒';
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+async function addToHome(){
+  if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt=null; }
+  else alert('Android Chrome：右上角選單 → 加到主畫面 / 安裝應用程式');
+}
+function fmt(v){ return (v===null || v===undefined) ? '—' : v.toLocaleString(); }
+function card(sym,d){
+  const cls=(d.change_pct??0)>0?'up':((d.change_pct??0)<0?'down':'');
+  return `<div class="card">
+    <div class="title"><div><div class="name">${d.name||d.title||sym}</div><div class="sym">${sym||''}</div></div>
+    <div class="${cls}">${d.change_pct==null?'':((d.change_pct>0?'+':'')+d.change_pct+'%')}</div></div>
+    <div class="price ${cls}">${fmt(d.last)}</div>
+    <div class="grid">
+      <div class="cell"><div class="label">開盤</div><div class="val">${fmt(d.open)}</div></div>
+      <div class="cell"><div class="label">最高</div><div class="val">${fmt(d.high)}</div></div>
+      <div class="cell"><div class="label">最低</div><div class="val">${fmt(d.low)}</div></div>
+      <div class="cell"><div class="label">昨收</div><div class="val">${fmt(d.prev_close)}</div></div>
+      <div class="cell"><div class="label">總量</div><div class="val">${fmt(d.volume)}</div></div>
+      <div class="cell"><div class="label">未平倉</div><div class="val">${fmt(d.open_interest)}</div></div>
+    </div>
+    <div class="status">${d.ok===false?'⚠️ '+(d.error||'抓取失敗'):'更新：'+new Date(d.ts_server).toLocaleString()}</div>
+  </div>`;
+}
+async function loadAll(){
+  cards.innerHTML='<div class="muted">抓取中…</div>';
+  try{
+    const r=await fetch('/api/all'); const j=await r.json();
+    cards.innerHTML=Object.entries(j).map(([s,d])=>card(s,d)).join('');
+  }catch(e){cards.innerHTML='<div class="down">連線失敗：'+e+'</div>'}
+}
+async function loadUrl(){
+  const u=document.getElementById('url').value.trim();
+  cards.innerHTML='<div class="muted">抓取中…</div>';
+  try{
+    const r=await fetch('/api/quote?url='+encodeURIComponent(u)); const j=await r.json();
+    cards.innerHTML=card('',j);
+  }catch(e){cards.innerHTML='<div class="down">連線失敗：'+e+'</div>'}
+}
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js'); }
+window.addEventListener('online', loadAll);
+loadAll();
+</script>
+</body>
+</html>

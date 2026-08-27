@@ -1,0 +1,14 @@
+{
+  "name": "手機股票雷達",
+  "short_name": "股票雷達",
+  "description": "手機直接使用的台股 / 台指期 Yahoo 行情雷達",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#111827",
+  "icons": [
+    {"src":"/static/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"/static/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}
