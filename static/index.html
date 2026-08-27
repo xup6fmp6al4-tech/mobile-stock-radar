@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#111827"/>
   <link rel="manifest" href="/manifest.webmanifest"/>
   <link rel="icon" href="/static/icon-192.png"/>
-  <title>手機股票雷達 v0.5</title>
+  <title>手機股票雷達 v0.6</title>
   <style>
     :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1220;color:#f8fafc}
     *{box-sizing:border-box} body{margin:0;padding:16px;max-width:760px;margin:auto}
@@ -27,7 +27,7 @@
   </style>
 </head>
 <body>
-  <h1>📈 手機股票雷達 <span class="badge">v0.5</span></h1>
+  <h1>📈 手機股票雷達 <span class="badge">v0.6</span></h1>
   <div class="sub">Yahoo 股市輕量 HTTP 行情版。直接抓 6770 力積電、2609 陽明、WTX&amp; 台指期近一，不必貼網址。</div>
 
   <div class="row">
@@ -39,7 +39,7 @@
   <div id="cards"><div class="muted">準備抓取…</div></div>
 
   <div class="note">
-    這版只讀公開行情，不含下單功能。v0.5 已移除 Chromium，降低 Render 免費 512MB 記憶體不足造成 Failed to fetch 的機率。若 Yahoo 改版，會顯示實際錯誤，不猜數字。<br/>
+    這版只讀公開行情，不含下單功能。v0.6 已移除 Chromium，降低 Render 免費 512MB 記憶體不足造成 Failed to fetch 的機率。若 Yahoo 改版，會顯示實際錯誤，不猜數字。<br/>
     Render 免費方案閒置後會休眠，第一次更新仍可能需要稍久。
   </div>
 
@@ -97,7 +97,7 @@ async function jsonFetch(url){
 }
 async function loadAll(){
   refreshBtn.disabled=true;
-  cards.innerHTML='<div class="muted">抓取中… v0.5 不啟動雲端瀏覽器，通常數秒內完成。</div>';
+  cards.innerHTML='<div class="muted">抓取中… v0.6 不啟動雲端瀏覽器，通常數秒內完成。</div>';
   try{
     const j=await jsonFetch('/api/all');
     cards.innerHTML=Object.entries(j).map(([s,d])=>card(s,d)).join('');
