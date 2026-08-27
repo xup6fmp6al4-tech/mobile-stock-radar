@@ -290,6 +290,13 @@ def parse_quote_html(html: str, *, symbol: str, fallback_name: str, kind: str, u
             # Yahoo 內嵌 JSON 常用 0.0057 表示 0.57%。
             change_pct = cp * 100 if abs(cp) <= 1 else cp
 
+    # v0.6：若成交價與昨收都存在，直接用兩者重算漲跌與漲跌幅。
+    # Yahoo 頁面同時包含許多百分比，單靠文字欄位可能誤抓到別的 +0.xx%。
+    # 以 last/prev_close 重算可保證方向與顯示價格自洽。
+    if last is not None and prev_close not in (None, 0):
+        change = last - prev_close
+        change_pct = (change / prev_close) * 100
+
     name = jsonish_string(win, ["symbolName", "shortName", "longName"]) or normalize_name_from_title(html, fallback_name)
 
     useful = sum(v is not None for v in [last, open_, high, low, prev_close, volume])
@@ -384,7 +391,7 @@ async def all_quotes():
         except Exception as exc:
             return sym, {**meta, "symbol": sym, "ok": False, "error": getattr(exc, "detail", str(exc))}
 
-    # v0.5 不開 Chromium，3 個純 HTTP 請求可同時進行，通常數秒內完成。
+    # v0.6 不開 Chromium，3 個純 HTTP 請求可同時進行，通常數秒內完成。
     pairs = await asyncio.gather(*(one(sym, meta) for sym, meta in WATCHLIST.items()))
     return dict(pairs)
 
@@ -394,7 +401,7 @@ async def health():
     return {
         "ok": True,
         "service": "mobile-stock-radar",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "transport": "http-no-browser",
         "watchlist": list(WATCHLIST.keys()),
     }
