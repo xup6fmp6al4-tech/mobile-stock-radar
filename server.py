@@ -1,9 +1,13 @@
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 import asyncio
+import json
 import os
 import re
 import time
@@ -19,37 +23,16 @@ STATIC_DIR = BASE_DIR / "static"
 WATCHLIST = {
     "6770.TW": {"name": "力積電", "kind": "stock", "url": "https://tw.stock.yahoo.com/quote/6770.TW"},
     "2609.TW": {"name": "陽明", "kind": "stock", "url": "https://tw.stock.yahoo.com/quote/2609.TW"},
-    "WTX&": {"name": "台指期近一", "kind": "future", "url": "https://tw.stock.yahoo.com/future/WTX%26"},
+    # Yahoo 的單一行情頁比 /future/ 首頁更適合取欄位。
+    "WTX&": {"name": "台指期近一", "kind": "future", "url": "https://tw.stock.yahoo.com/quote/WTX%26"},
 }
 
-_browser = None
-_browser_lock = asyncio.Lock()
-# Render Free 只有 512MB / 0.1 CPU，同時開多個 Chromium context 很容易不穩。
-_scrape_sem = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_SCRAPES", "1")))
 _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-CACHE_SECONDS = int(os.getenv("QUOTE_CACHE_SECONDS", "10"))
+CACHE_SECONDS = int(os.getenv("QUOTE_CACHE_SECONDS", "15"))
+HTTP_TIMEOUT = int(os.getenv("YAHOO_HTTP_TIMEOUT", "15"))
+MAX_BYTES = int(os.getenv("YAHOO_MAX_BYTES", str(6 * 1024 * 1024)))
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _browser
-    from playwright.async_api import async_playwright
-
-    playwright = await async_playwright().start()
-    _browser = await playwright.chromium.launch(
-        headless=True,
-        args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    )
-    app.state.playwright = playwright
-    try:
-        yield
-    finally:
-        if _browser:
-            await _browser.close()
-        await playwright.stop()
-
-
-app = FastAPI(title="Mobile Stock Radar", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="Mobile Stock Radar", version="0.5.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,11 +46,13 @@ def clean(s: str) -> str:
     return re.sub(r"[ \t]+", " ", (s or "")).strip()
 
 
-def parse_number(raw: str):
+def parse_number(raw):
     if raw is None:
         return None
-    raw = raw.replace(",", "").strip()
-    if raw in {"", "-", "—", "--"}:
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    raw = str(raw).replace(",", "").replace("%", "").strip()
+    if raw in {"", "-", "—", "--", "null", "None"}:
         return None
     try:
         return float(raw)
@@ -75,14 +60,78 @@ def parse_number(raw: str):
         return None
 
 
+def validate_yahoo_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+    except Exception as exc:
+        raise HTTPException(400, "網址格式不正確") from exc
+    if parsed.scheme != "https" or parsed.hostname != "tw.stock.yahoo.com":
+        raise HTTPException(400, "目前只允許 https://tw.stock.yahoo.com/... 網址")
+    if not (parsed.path.startswith("/quote/") or parsed.path.startswith("/future/")):
+        raise HTTPException(400, "請使用 Yahoo 的單一股票/期貨行情頁")
+    return url
+
+
+class VisibleTextParser(HTMLParser):
+    BLOCKS = {
+        "p", "div", "li", "tr", "td", "th", "section", "article", "header", "footer",
+        "h1", "h2", "h3", "h4", "h5", "br", "dt", "dd", "button"
+    }
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: List[str] = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript", "svg"}:
+            self.skip += 1
+            return
+        if not self.skip and tag in self.BLOCKS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript", "svg"}:
+            if self.skip:
+                self.skip -= 1
+            return
+        if not self.skip and tag in self.BLOCKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self.skip and data:
+            self.parts.append(data)
+
+    def text(self) -> str:
+        s = unescape("".join(self.parts)).replace("\r", "\n")
+        s = re.sub(r"[ \t\u00a0]+", " ", s)
+        s = re.sub(r"\n[ \t]+", "\n", s)
+        s = re.sub(r"\n{2,}", "\n", s)
+        return s.strip()
+
+
+def visible_text(html: str) -> str:
+    parser = VisibleTextParser()
+    try:
+        parser.feed(html)
+        return parser.text()
+    except Exception:
+        # 即使 HTML 有瑕疵，也保留一個超輕量 fallback。
+        s = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\1>", " ", html)
+        s = re.sub(r"(?i)<br\s*/?>|</(?:div|p|li|tr|td|th|h\d|section)>", "\n", s)
+        s = re.sub(r"(?s)<[^>]+>", " ", s)
+        return unescape(s)
+
+
 def field_number(text: str, labels: List[str]):
-    """讀 Yahoo 行情欄位；支援「開盤69.8」與「開盤\n69.8」兩種版面。"""
     n = r"([-+]?\d[\d,]*(?:\.\d+)?)"
     for lab in labels:
-        # 先要求 label 後面直接接空白/冒號/換行，避免「成交」誤吃到「成交量」。
         patterns = [
             rf"(?:^|\n)\s*{re.escape(lab)}\s*[:：]?\s*{n}",
             rf"{re.escape(lab)}\s*[:：]\s*{n}",
+            rf"{re.escape(lab)}\s+{n}",
         ]
         for pat in patterns:
             m = re.search(pat, text, flags=re.MULTILINE)
@@ -105,96 +154,113 @@ def field_percent(text: str, labels: List[str]):
     return None
 
 
-def normalize_name(title: str, fallback: str = "") -> str:
-    # 「力積電(6770.TW) 走勢圖 - Yahoo股市」→「力積電」
-    if title:
-        m = re.match(r"\s*([^\(\-]+?)\s*(?:\(|-|$)", title)
+def jsonish_value(blob: str, keys: List[str]):
+    """從 Yahoo SSR 內嵌資料抓數字；相容 raw 巢狀值與舊式直接值。"""
+    for key in keys:
+        ek = re.escape(key)
+        pats = [
+            rf'"{ek}"\s*:\s*\{{[^{{}}]{{0,450}}?"raw"\s*:\s*(?:"([-+]?\d[\d,]*(?:\.\d+)?)"|([-+]?\d[\d,]*(?:\.\d+)?))',
+            rf'"{ek}"\s*:\s*"([-+]?\d[\d,]*(?:\.\d+)?)"',
+            rf'"{ek}"\s*:\s*([-+]?\d[\d,]*(?:\.\d+)?)',
+        ]
+        for pat in pats:
+            m = re.search(pat, blob)
+            if not m:
+                continue
+            vals = [g for g in m.groups() if g is not None]
+            if vals:
+                v = parse_number(vals[0])
+                if v is not None:
+                    return v
+    return None
+
+
+def jsonish_string(blob: str, keys: List[str]):
+    for key in keys:
+        m = re.search(rf'"{re.escape(key)}"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', blob)
         if m:
-            name = clean(m.group(1))
-            if name and name != "Yahoo股市":
-                return name
+            try:
+                return json.loads('"' + m.group(1) + '"')
+            except Exception:
+                return unescape(m.group(1))
+    return None
+
+
+def target_window(html: str, symbol: str) -> str:
+    variants = [symbol, symbol.replace("&", r"\u0026"), symbol.replace("&", "%26")]
+    hits = []
+    for v in variants:
+        start = 0
+        while True:
+            i = html.find(v, start)
+            if i < 0:
+                break
+            a, b = max(0, i - 12000), min(len(html), i + 18000)
+            chunk = html[a:b]
+            score = sum(k in chunk for k in [
+                '"price"', '"regularMarketOpen"', '"regularMarketDayHigh"',
+                '"regularMarketDayLow"', '"regularMarketPreviousClose"', '"changePercent"'
+            ])
+            hits.append((score, chunk))
+            start = i + max(1, len(v))
+    if hits:
+        hits.sort(key=lambda x: x[0], reverse=True)
+        return hits[0][1]
+    return html[:250000]
+
+
+def normalize_name_from_title(html: str, fallback: str) -> str:
+    m = re.search(r"(?is)<title[^>]*>(.*?)</title>", html)
+    if not m:
+        return fallback
+    title = clean(unescape(re.sub(r"<[^>]+>", "", m.group(1))))
+    mm = re.match(r"\s*([^\(\-]+?)\s*(?:\(|-|$)", title)
+    if mm:
+        name = clean(mm.group(1))
+        if name and name != "Yahoo股市":
+            return name
     return fallback
 
 
-def validate_yahoo_url(url: str) -> str:
-    try:
-        parsed = urlparse(url)
-    except Exception as exc:
-        raise HTTPException(400, "網址格式不正確") from exc
-    if parsed.scheme != "https" or parsed.hostname != "tw.stock.yahoo.com":
-        raise HTTPException(400, "目前只允許 https://tw.stock.yahoo.com/... 網址")
-    # 首頁會出現大盤百分比，卻沒有單一商品欄位，v0.3 因此曾顯示誤導性的 +0.31%。
-    if not (parsed.path.startswith("/quote/") or parsed.path.startswith("/future/")):
-        raise HTTPException(400, "請使用 Yahoo 的單一股票/期貨行情頁，不要使用股市首頁")
-    return url
-
-
-async def get_browser():
-    global _browser
-    if _browser and _browser.is_connected():
-        return _browser
-    async with _browser_lock:
-        if _browser and _browser.is_connected():
-            return _browser
-        playwright = app.state.playwright
-        _browser = await playwright.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-        )
-        return _browser
-
-
-async def scrape_yahoo(url: str, *, fallback_name: str = "", symbol: str = "", kind: str = "") -> Dict[str, Any]:
-    url = validate_yahoo_url(url)
-    now = time.monotonic()
-    cached = _cache.get(url)
-    if cached and now - cached[0] < CACHE_SECONDS:
-        return {**cached[1], "cached": True}
-
-    async with _scrape_sem:
-        # 等 semaphore 時可能已有另一個請求剛更新快取。
-        cached = _cache.get(url)
-        if cached and time.monotonic() - cached[0] < CACHE_SECONDS:
-            return {**cached[1], "cached": True}
-
-        browser = await get_browser()
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            locale="zh-TW",
-            user_agent=(
-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 "
-                "Chrome/126.0.0.0 Mobile Safari/537.36"
+def http_get_text(url: str) -> str:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
             ),
-        )
-        page = await context.new_page()
+            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-TW,zh-Hant;q=0.9,en;q=0.5",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+            status = getattr(resp, "status", 200)
+            raw = resp.read(MAX_BYTES + 1)
+            if len(raw) > MAX_BYTES:
+                raise HTTPException(502, "Yahoo 回應過大，已中止")
+            charset = resp.headers.get_content_charset() or "utf-8"
+            text = raw.decode(charset, errors="replace")
+            if status >= 400:
+                raise HTTPException(502, f"Yahoo 回應 HTTP {status}")
+            return text
+    except HTTPError as exc:
+        raise HTTPException(502, f"Yahoo 回應 HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise HTTPException(502, f"Yahoo 連線失敗：{getattr(exc, 'reason', 'URLError')}") from exc
+    except TimeoutError as exc:
+        raise HTTPException(504, "Yahoo 連線逾時") from exc
 
-        async def block_heavy(route):
-            if route.request.resource_type in {"image", "font", "media"}:
-                await route.abort()
-            else:
-                await route.continue_()
 
-        await page.route("**/*", block_heavy)
-        try:
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=35000)
-            if resp and resp.status >= 400:
-                raise HTTPException(502, f"Yahoo 回應 HTTP {resp.status}")
-            # Yahoo 大多是 SSR；短暫等待讓個別動態區塊補齊。
-            await page.wait_for_timeout(700)
-            text = await page.locator("body").inner_text(timeout=12000)
-            title = await page.title()
-            try:
-                h1 = clean(await page.locator("h1").first.inner_text(timeout=1500))
-            except Exception:
-                h1 = ""
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(502, f"Yahoo 行情頁讀取失敗：{type(exc).__name__}") from exc
-        finally:
-            await context.close()
+def parse_quote_html(html: str, *, symbol: str, fallback_name: str, kind: str, url: str) -> Dict[str, Any]:
+    text = visible_text(html)
+    win = target_window(html, symbol)
 
-    # 只使用有明確欄位名稱的數字，不再拿頁面上的「第一個百分比」猜漲跌幅。
+    # 先讀畫面欄位；Yahoo 的 SSR 頁目前會把這些行情文字直接放進 HTML。
     last = field_number(text, ["成交", "成交價"])
     open_ = field_number(text, ["開盤"])
     high = field_number(text, ["最高"])
@@ -207,21 +273,37 @@ async def scrape_yahoo(url: str, *, fallback_name: str = "", symbol: str = "", k
     change_pct = field_percent(text, ["漲跌幅", "漲幅"])
     change = field_number(text, ["漲跌"])
 
-    # 某些 Yahoo 版型把昨收寫成參考價；期貨優先保留參考價。
-    name = h1 or normalize_name(title, fallback_name) or fallback_name or symbol or "Yahoo行情"
+    # 若版型把數字只留在 SSR JSON，改由內嵌資料補齊。
+    last = last if last is not None else jsonish_value(win, ["price", "regularMarketPrice"])
+    open_ = open_ if open_ is not None else jsonish_value(win, ["regularMarketOpen"])
+    high = high if high is not None else jsonish_value(win, ["regularMarketDayHigh"])
+    low = low if low is not None else jsonish_value(win, ["regularMarketDayLow"])
+    prev_close = prev_close if prev_close is not None else jsonish_value(win, ["regularMarketPreviousClose", "previousClose"])
+    volume = volume if volume is not None else jsonish_value(win, ["volume", "volumeK", "regularMarketVolume"])
+    bid = bid if bid is not None else jsonish_value(win, ["bid"])
+    ask = ask if ask is not None else jsonish_value(win, ["ask"])
+    oi = oi if oi is not None else jsonish_value(win, ["openInterest", "open_interest"])
+    change = change if change is not None else jsonish_value(win, ["change", "regularMarketChange"])
+    if change_pct is None:
+        cp = jsonish_value(win, ["changePercent", "regularMarketChangePercent"])
+        if cp is not None:
+            # Yahoo 內嵌 JSON 常用 0.0057 表示 0.57%。
+            change_pct = cp * 100 if abs(cp) <= 1 else cp
+
+    name = jsonish_string(win, ["symbolName", "shortName", "longName"]) or normalize_name_from_title(html, fallback_name)
+
     useful = sum(v is not None for v in [last, open_, high, low, prev_close, volume])
     if useful < 3:
-        # 回傳明確錯誤，而不是顯示一堆「—」讓人誤以為有抓成功。
-        raise HTTPException(502, f"Yahoo 頁面已開啟，但行情欄位解析不足（{useful}/6）")
+        # 不再啟動 Chromium；免費 512MB 方案若開瀏覽器容易被 OOM kill，前端只會看到 Failed to fetch。
+        raise HTTPException(502, f"Yahoo 頁面已取得，但行情欄位解析不足（{useful}/6）")
 
-    data = {
+    return {
         "ok": True,
         "source": "Yahoo股市",
         "url": url,
         "symbol": symbol,
         "kind": kind,
-        "name": name,
-        "title": title,
+        "name": name or fallback_name or symbol,
         "last": last,
         "open": open_,
         "high": high,
@@ -235,14 +317,28 @@ async def scrape_yahoo(url: str, *, fallback_name: str = "", symbol: str = "", k
         "open_interest": oi,
         "ts_server": datetime.now(timezone.utc).isoformat(),
         "cached": False,
+        "transport": "http",
     }
+
+
+async def scrape_yahoo(url: str, *, fallback_name: str = "", symbol: str = "", kind: str = "") -> Dict[str, Any]:
+    url = validate_yahoo_url(url)
+    cached = _cache.get(url)
+    now = time.monotonic()
+    if cached and now - cached[0] < CACHE_SECONDS:
+        return {**cached[1], "cached": True}
+
+    html = await asyncio.to_thread(http_get_text, url)
+    data = await asyncio.to_thread(
+        parse_quote_html, html, symbol=symbol, fallback_name=fallback_name, kind=kind, url=url
+    )
     _cache[url] = (time.monotonic(), data)
     return data
 
 
 @app.get("/")
 async def root():
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/manifest.webmanifest")
@@ -266,9 +362,8 @@ async def get_watchlist():
 
 @app.get("/api/quote")
 async def quote(url: Optional[str] = None, symbol: Optional[str] = None):
-    meta = None
-    if symbol and symbol in WATCHLIST:
-        meta = WATCHLIST[symbol]
+    meta = WATCHLIST.get(symbol) if symbol else None
+    if meta:
         url = meta["url"]
     if not url:
         raise HTTPException(400, "請提供 url 或 symbol")
@@ -282,18 +377,16 @@ async def quote(url: Optional[str] = None, symbol: Optional[str] = None):
 
 @app.get("/api/all")
 async def all_quotes():
-    # Render Free 版刻意依序抓，避免 Chromium 同時三開造成記憶體/CPU 爆掉。
-    result = {}
-    for sym, meta in WATCHLIST.items():
+    async def one(sym: str, meta: Dict[str, str]):
         try:
-            data = await scrape_yahoo(
-                meta["url"], fallback_name=meta["name"], symbol=sym, kind=meta["kind"]
-            )
-            result[sym] = {**meta, **data}
+            d = await scrape_yahoo(meta["url"], fallback_name=meta["name"], symbol=sym, kind=meta["kind"])
+            return sym, {**meta, **d}
         except Exception as exc:
-            detail = getattr(exc, "detail", str(exc))
-            result[sym] = {**meta, "symbol": sym, "ok": False, "error": detail}
-    return result
+            return sym, {**meta, "symbol": sym, "ok": False, "error": getattr(exc, "detail", str(exc))}
+
+    # v0.5 不開 Chromium，3 個純 HTTP 請求可同時進行，通常數秒內完成。
+    pairs = await asyncio.gather(*(one(sym, meta) for sym, meta in WATCHLIST.items()))
+    return dict(pairs)
 
 
 @app.get("/health")
@@ -301,8 +394,8 @@ async def health():
     return {
         "ok": True,
         "service": "mobile-stock-radar",
-        "version": "0.4.0",
-        "browser": bool(_browser and _browser.is_connected()),
+        "version": "0.5.0",
+        "transport": "http-no-browser",
         "watchlist": list(WATCHLIST.keys()),
     }
 
