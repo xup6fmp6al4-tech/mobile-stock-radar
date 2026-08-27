@@ -1,5 +1,5 @@
-const CACHE = "stock-radar-v3";
-const APP_SHELL = ["/", "/manifest.webmanifest"];
+const CACHE = "stock-radar-v4";
+const APP_SHELL = ["/manifest.webmanifest", "/static/icon-192.png", "/static/icon-512.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));
@@ -19,5 +19,16 @@ self.addEventListener("fetch", event => {
     event.respondWith(fetch(event.request, { cache: "no-store" }));
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+  // 導航永遠先拿網路新版；失敗才退回舊快取，避免 Render 更新後手機一直卡舊版。
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request, { cache: "no-store" }).catch(() => caches.match("/")));
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then(cached => cached || fetch(event.request).then(resp => {
+      const copy = resp.clone();
+      caches.open(CACHE).then(cache => cache.put(event.request, copy));
+      return resp;
+    }))
+  );
 });
