@@ -392,6 +392,7 @@ async def quote(url: Optional[str] = None, symbol: Optional[str] = None):
     )
 
 
+@app.get("/api/radar")
 @app.get("/api/all")
 async def all_quotes():
     async def one(sym: str, meta: Dict[str, str]):
