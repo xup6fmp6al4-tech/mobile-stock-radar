@@ -381,7 +381,7 @@ async def get_watchlist():
 async def quote(url: Optional[str] = None, symbol: Optional[str] = None):
     meta = WATCHLIST.get(symbol) if symbol else None
     if meta:
-        url = meta["url"]
+        url = meta.get("url") or f"https://tw.stock.yahoo.com/quote/{(symbol or '').replace('&', '%26')}"
     if not url:
         raise HTTPException(400, "請提供 url 或 symbol")
     return await scrape_yahoo(
@@ -397,7 +397,7 @@ async def quote(url: Optional[str] = None, symbol: Optional[str] = None):
 async def all_quotes():
     async def one(sym: str, meta: Dict[str, str]):
         try:
-            d = await scrape_yahoo(meta["url"], fallback_name=meta["name"], symbol=sym, kind=meta["kind"])
+            d = await scrape_yahoo(meta.get("url") or f"https://tw.stock.yahoo.com/quote/{sym.replace('&', '%26')}", fallback_name=meta["name"], symbol=sym, kind=meta["kind"])
             return sym, {**meta, **d}
         except Exception as exc:
             return sym, {**meta, "symbol": sym, "ok": False, "error": getattr(exc, "detail", str(exc))}
