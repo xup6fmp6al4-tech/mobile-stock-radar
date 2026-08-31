@@ -21,12 +21,22 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
 WATCHLIST = {
-    "6770.TW": {"name": "力積電", "kind": "stock", "url": "https://tw.stock.yahoo.com/quote/6770.TW"},
-    "2609.TW": {"name": "陽明", "kind": "stock", "url": "https://tw.stock.yahoo.com/quote/2609.TW"},
-    # Yahoo 的單一行情頁比 /future/ 首頁更適合取欄位。
-    "WTX&": {"name": "台指期近一", "kind": "future", "url": "https://tw.stock.yahoo.com/quote/WTX%26"},
+    "6770.TW": {"name": "力積電", "kind": "stock"},
+    "2609.TW": {"name": "陽明", "kind": "stock"},
+    "8299.TWO": {"name": "群聯", "kind": "stock"},
+    "2630.TW": {"name": "亞航", "kind": "stock"},
+    "2634.TW": {"name": "漢翔", "kind": "stock"},
+    "8105.TWO": {"name": "凌巨", "kind": "stock"},
+    "3189.TWO": {"name": "景碩", "kind": "stock"},
+    "2454.TW": {"name": "聯發科", "kind": "stock"},
+    "2308.TW": {"name": "台達電", "kind": "stock"},
+    "3034.TW": {"name": "聯詠", "kind": "stock"},
+    "3035.TW": {"name": "智原", "kind": "stock"},
+    "2409.TW": {"name": "友達", "kind": "stock"},
+    "1605.TW": {"name": "華新", "kind": "stock"},
+    "2492.TW": {"name": "華新科", "kind": "stock"},
+    "WTX&": {"name": "台指期近一", "kind": "future"},
 }
-
 _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 CACHE_SECONDS = int(os.getenv("QUOTE_CACHE_SECONDS", "15"))
 HTTP_TIMEOUT = int(os.getenv("YAHOO_HTTP_TIMEOUT", "15"))
