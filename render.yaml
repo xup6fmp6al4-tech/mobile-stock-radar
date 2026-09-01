@@ -1,10 +1,11 @@
 services:
   - type: web
-    name: mobile-stock-radar
-    runtime: docker
+    name: mobile-stock-radar-blackbox
+    runtime: python
     plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    autoDeployTrigger: commit
     envVars:
-      - key: MAX_CONCURRENT_SCRAPES
-        value: "3"
+      - key: DATABASE_URL
+        sync: false
