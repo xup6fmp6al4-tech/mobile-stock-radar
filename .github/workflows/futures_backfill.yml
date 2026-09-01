@@ -1,0 +1,52 @@
+name: radar-futures-backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Backfill mode
+        required: true
+        default: bootstrap
+        type: choice
+        options:
+          - bootstrap
+          - public
+          - official
+          - coverage
+      start_date:
+        description: Official daily start (YYYY-MM-DD)
+        required: false
+        default: '2026-05-18'
+        type: string
+      end_date:
+        description: Official daily end (YYYY-MM-DD)
+        required: false
+        default: '2026-08-31'
+        type: string
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Backfill TXF 3-minute history
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MODE: ${{ inputs.mode }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+        run: |
+          python futures_backfill.py \
+            --mode "$MODE" \
+            --start "$START_DATE" \
+            --end "$END_DATE" \
+            --years 2024 2025 2026
