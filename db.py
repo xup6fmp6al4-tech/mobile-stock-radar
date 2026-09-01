@@ -16,6 +16,13 @@ CREATE TABLE IF NOT EXISTS bars (
   PRIMARY KEY(symbol, ts_utc)
 );
 CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(ts_utc);
+CREATE TABLE IF NOT EXISTS bars_5m (
+  symbol TEXT NOT NULL, ts_utc INTEGER NOT NULL,
+  open REAL, high REAL, low REAL, close REAL, volume REAL,
+  source TEXT NOT NULL, archived_at TEXT NOT NULL,
+  PRIMARY KEY(symbol, ts_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_bars5_ts ON bars_5m(ts_utc);
 CREATE TABLE IF NOT EXISTS captures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source TEXT NOT NULL, symbol TEXT,
@@ -28,6 +35,9 @@ CREATE TABLE IF NOT EXISTS source_status (
   key TEXT PRIMARY KEY, label TEXT NOT NULL, state TEXT NOT NULL,
   detail TEXT, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS system_state (
+  key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL
+);
 """
 
 SCHEMA_PG = """
@@ -39,6 +49,14 @@ CREATE TABLE IF NOT EXISTS bars (
   PRIMARY KEY(symbol, ts_utc)
 );
 CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(ts_utc);
+CREATE TABLE IF NOT EXISTS bars_5m (
+  symbol TEXT NOT NULL, ts_utc BIGINT NOT NULL,
+  open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
+  close DOUBLE PRECISION, volume DOUBLE PRECISION,
+  source TEXT NOT NULL, archived_at TEXT NOT NULL,
+  PRIMARY KEY(symbol, ts_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_bars5_ts ON bars_5m(ts_utc);
 CREATE TABLE IF NOT EXISTS captures (
   id BIGSERIAL PRIMARY KEY, source TEXT NOT NULL, symbol TEXT,
   started_at TEXT NOT NULL, finished_at TEXT,
@@ -49,6 +67,9 @@ CREATE TABLE IF NOT EXISTS captures (
 CREATE TABLE IF NOT EXISTS source_status (
   key TEXT PRIMARY KEY, label TEXT NOT NULL, state TEXT NOT NULL,
   detail TEXT, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS system_state (
+  key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL
 );
 """
 
