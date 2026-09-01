@@ -1,8 +1,6 @@
 name: radar-blackbox-capture
 
 on:
-  schedule:
-    - cron: '2-59/5 * * * *'
   workflow_dispatch:
 
 jobs:
