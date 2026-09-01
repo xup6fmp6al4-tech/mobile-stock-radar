@@ -9,8 +9,11 @@ from config import (
     ARCHIVE_5M_RETENTION_DAYS, CAPTURE_SUCCESS_RETENTION_DAYS,
     CAPTURE_ERROR_RETENTION_DAYS, STORAGE_SOFT_LIMIT_MB,
 )
+from futures_similarity import router as futures_router
 
-app=FastAPI(title="Radar Black Box",version="1.2")
+app=FastAPI(title="Radar Black Box",version="1.3")
+app.include_router(futures_router)
+
 @app.on_event("startup")
 def startup(): init_db()
 
@@ -19,7 +22,7 @@ def ph(): return "%s" if USING_POSTGRES else "?"
 
 @app.get("/",response_class=HTMLResponse)
 def home():
-    return """<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Radar Black Box</title><h1>Radar Black Box v1.2</h1><p>Machine-readable recorder/API. UI intentionally minimal.</p><p><a href='/health'>health</a> · <a href='/api/blackbox/status'>status</a> · <a href='/api/blackbox/gaps'>gaps</a> · <a href='/api/blackbox/storage'>storage</a> · <a href='/docs'>docs</a></p>"""
+    return """<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Radar Black Box</title><h1>Radar Black Box v1.3</h1><p>Machine-readable recorder/API. UI intentionally minimal.</p><p><a href='/health'>health</a> · <a href='/api/blackbox/status'>status</a> · <a href='/api/blackbox/gaps'>gaps</a> · <a href='/api/blackbox/storage'>storage</a> · <a href='/api/blackbox/futures/coverage'>futures coverage</a> · <a href='/docs'>docs</a></p>"""
 
 @app.get("/health")
 def health():
@@ -27,14 +30,14 @@ def health():
         with db() as con:
             n=fetchone_dict(con,"SELECT COUNT(*) AS n FROM bars")["n"]
             n5=fetchone_dict(con,"SELECT COUNT(*) AS n FROM bars_5m")["n"]
-        return {"ok":True,"version":"1.2-blackbox","utc":iso(),"bars_1m":n,"bars_5m":n5,"database":"postgres" if USING_POSTGRES else "sqlite-local"}
-    except Exception as e: return {"ok":False,"version":"1.2-blackbox","utc":iso(),"error":str(e)}
+        return {"ok":True,"version":"1.3-blackbox","utc":iso(),"bars_1m":n,"bars_5m":n5,"database":"postgres" if USING_POSTGRES else "sqlite-local"}
+    except Exception as e: return {"ok":False,"version":"1.3-blackbox","utc":iso(),"error":str(e)}
 
 @app.get("/api/radar")
 def radar():
     with db() as con:
         rows=fetchall_dict(con,"""SELECT b.* FROM bars b JOIN (SELECT symbol,MAX(ts_utc) ts FROM bars GROUP BY symbol) x ON x.symbol=b.symbol AND x.ts=b.ts_utc ORDER BY b.symbol""")
-    return {"version":"1.2-blackbox","generated_at":iso(),"symbols":rows}
+    return {"version":"1.3-blackbox","generated_at":iso(),"symbols":rows}
 
 @app.get("/api/blackbox/status")
 def status():
@@ -45,7 +48,7 @@ def status():
         caps=fetchall_dict(con,"SELECT source,symbol,started_at,finished_at,ok,rows_written,error,raw_meta FROM captures ORDER BY id DESC LIMIT 20")
         state=fetchall_dict(con,"SELECT * FROM system_state ORDER BY key")
     for x in latest: x["age_seconds"]=now-(x["ts"] or now)
-    return {"version":"1.2-blackbox","utc":iso(),"database":"postgres" if USING_POSTGRES else "sqlite-local","core_symbols":CORE_SYMBOLS,"watchlist_count":len(WATCHLIST_SYMBOLS),"symbols_seen":latest,"requirements":sources,"system_state":state,"recent_captures":caps}
+    return {"version":"1.3-blackbox","utc":iso(),"database":"postgres" if USING_POSTGRES else "sqlite-local","core_symbols":CORE_SYMBOLS,"watchlist_count":len(WATCHLIST_SYMBOLS),"symbols_seen":latest,"requirements":sources,"system_state":state,"recent_captures":caps}
 
 @app.get("/api/blackbox/gaps")
 def gaps(stale_minutes:int=Query(30,ge=1,le=1440)):
@@ -73,7 +76,7 @@ def storage():
         counts={}
         for t in ("bars","bars_5m","captures","source_status"):
             counts[t]=fetchone_dict(con,f"SELECT COUNT(*) AS n FROM {t}")["n"]
-    return {"version":"1.2-blackbox","utc":iso(),"total_bytes":total,"total_mb":round(total/1024/1024,2),"soft_limit_mb":STORAGE_SOFT_LIMIT_MB,"tables":sizes,"counts":counts,"retention":{"1m_days":RAW_1M_RETENTION_DAYS,"5m_days":ARCHIVE_5M_RETENTION_DAYS,"capture_success_days":CAPTURE_SUCCESS_RETENTION_DAYS,"capture_error_days":CAPTURE_ERROR_RETENTION_DAYS},"note":"PostgreSQL reuses freed pages; physical bytes may not shrink immediately after cleanup."}
+    return {"version":"1.3-blackbox","utc":iso(),"total_bytes":total,"total_mb":round(total/1024/1024,2),"soft_limit_mb":STORAGE_SOFT_LIMIT_MB,"tables":sizes,"counts":counts,"retention":{"1m_days":RAW_1M_RETENTION_DAYS,"5m_days":ARCHIVE_5M_RETENTION_DAYS,"capture_success_days":CAPTURE_SUCCESS_RETENTION_DAYS,"capture_error_days":CAPTURE_ERROR_RETENTION_DAYS},"note":"PostgreSQL reuses freed pages; physical bytes may not shrink immediately after cleanup."}
 
 def _parse(s): return int(datetime.fromisoformat(s.replace("Z","+00:00")).timestamp()) if s else None
 
