@@ -1052,12 +1052,24 @@ function yahooUrl(meta){
 async function loadQuote(){
   const m=PRODUCTS[current];
   try{
-    // 先問期交所 OpenAPI。只有官方資料不具即時性／無資料／失敗時，才轉 Yahoo 備援。
-    let d=await jsonFetch(`/api/blackbox/futures/quote?product=${encodeURIComponent(m.product)}&session=${session}`);
-    if(!d?.ok || d?.fallback_required){
+    // 先問期交所 OpenAPI。只有官方資料不適合盤中即時／無資料／失敗時，才轉 Yahoo 備援。
+    const official=await jsonFetch(`/api/blackbox/futures/quote?product=${encodeURIComponent(m.product)}&session=${session}`);
+    let d=official;
+    if(!official?.ok || official?.fallback_required){
       const fallbackUrl=`/api/quote?url=${encodeURIComponent(yahooUrl(m))}&symbol=${encodeURIComponent(m.symbol)}`;
-      const y=await jsonFetch(fallbackUrl);
-      d={...y,ok:true,source:'yahoo_fallback',fallback:true,official_reason:d?.reason||'taifex_unavailable',official_meta:d?.official_meta||null};
+      try{
+        const y=await jsonFetch(fallbackUrl);
+        d={...y,ok:true,source:'yahoo_fallback',fallback:true,official_reason:official?.reason||'taifex_unavailable',official_meta:official?.official_meta||null};
+      }catch(fallbackErr){
+        // Yahoo 備援也失敗時，不要把已抓到的期交所最後有效行情清空成「—」。
+        const lastValid=official?.last_valid && typeof official.last_valid==='object' ? official.last_valid : official;
+        const hasOfficial=[lastValid?.last,lastValid?.open,lastValid?.high,lastValid?.low,lastValid?.bid,lastValid?.ask].some(v=>v!==null&&v!==undefined&&v!=='');
+        if(hasOfficial){
+          d={...lastValid,ok:true,fallback:false,source:'taifex_openapi_last_valid',official_reason:official?.reason||'yahoo_fallback_failed'};
+        }else{
+          throw fallbackErr;
+        }
+      }
     }
     currentQuote=d;
     quoteDataSource=d.source||'—';
@@ -1085,8 +1097,9 @@ async function loadQuote(){
     renderQuoteDetails();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
     const st=renderMarketState();
-    const src=d.source==='taifex_openapi'?'期交所官方':d.source==='yahoo_fallback'?'Yahoo備援':(d.source||'行情');
-    setBadge(`${src}${d.provider_latency_ms!=null?` ${fmt(d.provider_latency_ms,1)}ms`:''}`,d.source==='yahoo_fallback'?'warn':'ok');
+    const src=(d.source==='taifex_openapi'||d.source==='taifex_openapi_last_valid')?'期交所官方':d.source==='yahoo_fallback'?'Yahoo備援':(d.source||'行情');
+    const suffix=!st.open&&d.trading_date?`｜最後有效 ${d.trading_date}`:'';
+    setBadge(`${src}${suffix}${d.provider_latency_ms!=null?` ${fmt(d.provider_latency_ms,1)}ms`:''}`,d.source==='yahoo_fallback'?'warn':'ok');
   }catch(err){
     setBadge('行情讀取失敗','bad');
     qs('#quoteTime').textContent='讀取失敗';
@@ -1099,7 +1112,8 @@ async function loadQuote(){
 function renderSnapshot(d){
   const box=qs('#snapshotTable');
   if(!d){
-    box.innerHTML='<div class="empty-state"><span>目前抓不到最新行情快照。</span></div>';
+    const st=marketStatus();
+    box.innerHTML=`<div class="empty-state"><span>${st.open?'目前抓不到最新行情快照。':'市場休息｜正在讀取最後有效行情…'}</span></div>`;
     return;
   }
   box.innerHTML=`<div class="snapshot-row">
@@ -1200,7 +1214,7 @@ function renderQuoteDetails(){
     ['內盤',null,''],
     ['外盤',null,''],
     ['盤差',null,''],
-    ['結算',null,''],
+    ['結算',d.settlement,''],
     ['未平',d.open_interest,'yellow'],
     ['參考',d.prev_close,'yellow'],
     ['最低',d.low,'down'],
