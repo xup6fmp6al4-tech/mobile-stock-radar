@@ -168,43 +168,85 @@ def _select_daily_row(product: str, session: str):
     return same_session[0], meta
 
 
+def _best_daily_row(product: str, preferred_session: str):
+    """Return a usable latest official row. Prefer the requested session, but on holidays/weekends
+    fall back to the latest available session instead of returning an empty screen."""
+    row, meta = _select_daily_row(product, preferred_session)
+    if row is not None:
+        return row, preferred_session, meta
+
+    rows, meta = _daily_rows(product)
+    if not rows:
+        return None, preferred_session, meta
+
+    # Keep only rows with a real price and a delivery month. Prefer the latest Date,
+    # then the nearest delivery month. If both day/night exist on the same Date,
+    # night is fresher after Friday close, otherwise day remains a valid last snapshot.
+    candidates = []
+    for r in rows:
+        last = _num(_row_get(r, "Last", "Close", "最後成交價"))
+        if last is None:
+            continue
+        d = _date_iso(_row_get(r, "Date", "日期")) or ""
+        month = _contract_month(_row_get(r, "ContractMonth(Week)", "ContractMonthWeek", "到期月份(週別)"))
+        sess = _session_name(_row_get(r, "TradingSession", "交易時段")) or "day"
+        candidates.append((d, -(month or 999999), 1 if sess == "night" else 0, r, sess))
+    if not candidates:
+        return None, preferred_session, meta
+    # latest date first; for that date choose nearest month (smallest positive month)
+    latest_date = max(x[0] for x in candidates)
+    same_date = [x for x in candidates if x[0] == latest_date]
+    same_date.sort(key=lambda x: ((-x[1]) if x[1] else 999999, -x[2]))
+    _, _, _, r, sess = same_date[0]
+    return r, sess, meta
+
+
 def _official_quote(product: str, session: str):
-    row, meta = _select_daily_row(product, session)
+    row, used_session, meta = _best_daily_row(product, session)
     if row is None:
         return {
             "ok": False,
             "fallback_required": True,
-            "reason": "taifex_no_matching_session_row",
+            "reason": "taifex_no_usable_daily_row",
             "source": "taifex_openapi",
             "official_meta": meta,
         }
 
     market = _market_open_info()
     if market["open"] and market.get("session") == session:
+        # DailyMarketReportFut is not an intraday realtime feed. During an open session
+        # the frontend must use the realtime fallback, but we still attach last_valid
+        # so a fallback failure never wipes the screen to all dashes.
+        last_valid = _snapshot_from_daily_row(product, row, used_session, meta)
         return {
             "ok": False,
             "fallback_required": True,
             "reason": "taifex_openapi_not_intraday_realtime",
             "source": "taifex_openapi",
             "official_meta": meta,
+            "last_valid": last_valid,
         }
 
+    return _snapshot_from_daily_row(product, row, used_session, meta)
+
+
+def _snapshot_from_daily_row(product: str, row: dict[str, Any], used_session: str, meta: dict[str, Any]):
     last = _num(_row_get(row, "Last", "Close", "最後成交價"))
     change = _num(_row_get(row, "Change", "漲跌價"))
     change_pct = _num(_row_get(row, "%", "ChangePercent", "Change%", "漲跌%"))
     prev_close = last - change if last is not None and change is not None else None
-
     return {
         "ok": last is not None,
         "fallback_required": last is None,
         "source": "taifex_openapi",
         "source_detail": "DailyMarketReportFut",
         "fallback": False,
+        "last_valid": True,
         "product": product,
         "contract": PRODUCTS.get(product, {}).get("contract"),
         "contract_month": str(_row_get(row, "ContractMonth(Week)", "ContractMonthWeek", "到期月份(週別)") or ""),
         "trading_date": _date_iso(_row_get(row, "Date", "日期")),
-        "session": session,
+        "session": used_session,
         "last": last,
         "open": _num(_row_get(row, "Open", "開盤價")),
         "high": _num(_row_get(row, "High", "最高價")),
@@ -242,123 +284,86 @@ def _night_start_date(trading_date):
 
 
 def _official_trade_bars(product: str, session: str, minutes: int):
-    market = _market_open_info()
-    if market["open"] and market.get("session") == session:
-        return {"ok": False, "reason": "taifex_timesales_not_intraday_realtime", "bars": []}
+    """TAIFEX TimeAndSalesData is a very large end-of-day dataset, not a low-latency
+    intraday feed. Do not download it synchronously on every page refresh: that caused
+    the free Render worker to stall/restart. Mark it unavailable for realtime K and
+    let the endpoint use Yahoo only as the documented fallback.
 
-    key = (product, session, minutes)
-    cached = _BAR_CACHE.get(key)
-    if cached and time.time() - cached[0] <= TICKS_TTL:
-        return {**cached[1], "provider_cache_hit": True}
-
-    cfg = PRODUCTS.get(product)
-    if not cfg:
-        return {"ok": False, "reason": "unsupported_product", "bars": []}
-
-    daily_row, _ = _select_daily_row(product, session)
-    target_month = _contract_month(
-        _row_get(daily_row or {}, "ContractMonth(Week)", "ContractMonthWeek", "到期月份(週別)")
-    )
-    if target_month is None:
-        return {"ok": False, "reason": "taifex_near_month_unknown", "bars": []}
-
-    try:
-        data, meta = _taifex_get("TimeAndSalesData", TICKS_TTL)
-    except Exception as exc:
-        return {"ok": False, "reason": "taifex_timesales_failed", "error": repr(exc), "bars": []}
-
-    trades = []
-    for row in data:
-        contract = str(_row_get(row, "Contract", "契約", "商品代號", "契約代號") or "").strip().upper()
-        if contract != cfg["contract"]:
-            continue
-        month = _contract_month(_row_get(row, "ContractMonth(Week)", "到期月份(週別)"))
-        if month != target_month:
-            continue
-
-        tm = _parse_trade_time(_row_get(row, "Time", "成交時間"))
-        price = _num(_row_get(row, "Price", "成交價格"))
-        qty_bs = _num(_row_get(row, "Volume", "成交數量(B+S)", "成交數量"))
-        date_iso = _date_iso(_row_get(row, "Date", "交易日期", "成交日期", "日期"))
-        if tm is None or price is None or date_iso is None:
-            continue
-
-        hh, mm, ss = tm
-        minute_of_day = hh * 60 + mm
-        row_session = (
-            "night" if minute_of_day >= 15 * 60 or minute_of_day < 5 * 60
-            else "day" if 8 * 60 + 45 <= minute_of_day <= 13 * 60 + 45
-            else None
-        )
-        if row_session != session:
-            continue
-
-        td = datetime.strptime(date_iso, "%Y-%m-%d").date()
-        if session == "night":
-            start_date = _night_start_date(td)
-            cal_date = start_date if minute_of_day >= 15 * 60 else start_date + timedelta(days=1)
-            session_start = datetime(start_date.year, start_date.month, start_date.day, 15, 0, tzinfo=TZ)
-            offset = (minute_of_day - 15 * 60) if minute_of_day >= 15 * 60 else 9 * 60 + minute_of_day
-        else:
-            cal_date = td
-            session_start = datetime(td.year, td.month, td.day, 8, 45, tzinfo=TZ)
-            offset = minute_of_day - (8 * 60 + 45)
-
-        trade_dt = datetime(cal_date.year, cal_date.month, cal_date.day, hh, mm, ss, tzinfo=TZ)
-        idx = offset // minutes
-        bucket_start = session_start + timedelta(minutes=idx * minutes)
-        qty = (qty_bs or 0.0) / 2.0
-        trades.append((trade_dt, idx, int(bucket_start.astimezone(timezone.utc).timestamp()), price, qty, date_iso))
-
-    if not trades:
-        return {
-            "ok": False,
-            "reason": "taifex_no_matching_trades",
-            "bars": [],
-            "provider_latency_ms": meta.get("provider_latency_ms"),
-        }
-
-    trades.sort(key=lambda x: x[0])
-    buckets: dict[tuple[str, int], dict[str, Any]] = {}
-    for _, idx, bucket_ts, price, qty, trading_date in trades:
-        k = (trading_date, idx)
-        bar = buckets.get(k)
-        if bar is None:
-            buckets[k] = {
-                "product": product,
-                "trading_date": trading_date,
-                "session": session,
-                "bar_index": idx,
-                "ts_utc": bucket_ts,
-                "open": price,
-                "high": price,
-                "low": price,
-                "close": price,
-                "volume": qty,
-                "source": f"taifex_openapi_TimeAndSalesData_{minutes}m",
-            }
-        else:
-            bar["high"] = max(bar["high"], price)
-            bar["low"] = min(bar["low"], price)
-            bar["close"] = price
-            bar["volume"] += qty
-
-    bars = sorted(buckets.values(), key=lambda b: (b["trading_date"], b["bar_index"]))
-    latest_date = max(b["trading_date"] for b in bars)
-    bars = [b for b in bars if b["trading_date"] == latest_date]
-    result = {
-        "ok": True,
-        "product": product,
-        "session": session,
-        "trading_date": latest_date,
-        "bars": bars,
+    Daily/last-valid quote data still comes from TAIFEX first.
+    """
+    return {
+        "ok": False,
+        "reason": "taifex_timesales_batch_not_realtime",
+        "bars": [],
         "source": "taifex_openapi",
         "source_detail": "TimeAndSalesData",
-        "provider_latency_ms": meta.get("provider_latency_ms"),
-        "provider_cache_hit": meta.get("cache_hit", False),
     }
-    _BAR_CACHE[key] = (time.time(), result)
-    return result
+
+
+def _aggregate_bars(bars: list[dict[str, Any]], minutes: int):
+    if minutes <= 1:
+        return list(bars)
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for b in bars:
+        try:
+            idx = int(b.get("bar_index", 0)) // minutes
+        except Exception:
+            continue
+        groups.setdefault(idx, []).append(b)
+    out = []
+    for idx in sorted(groups):
+        g = sorted(groups[idx], key=lambda x: int(x.get("bar_index", 0)))
+        if not g:
+            continue
+        opens = [x.get("open") for x in g if x.get("open") is not None]
+        highs = [float(x["high"]) for x in g if x.get("high") is not None]
+        lows = [float(x["low"]) for x in g if x.get("low") is not None]
+        closes = [x.get("close") for x in g if x.get("close") is not None]
+        if not closes:
+            continue
+        out.append({
+            "product": g[0].get("product"),
+            "trading_date": g[0].get("trading_date"),
+            "session": g[0].get("session"),
+            "bar_index": idx,
+            "ts_utc": g[0].get("ts_utc"),
+            "open": float(opens[0]) if opens else float(closes[0]),
+            "high": max(highs) if highs else float(closes[-1]),
+            "low": min(lows) if lows else float(closes[-1]),
+            "close": float(closes[-1]),
+            "volume": sum(float(x.get("volume") or 0) for x in g),
+            "source": f"yahoo_fallback_{minutes}m",
+        })
+    return out
+
+
+def _yahoo_recent_bars(product: str, session: str, minutes: int, limit: int):
+    raw = legacy.get_1m(product=product, session=session, limit=min(1500, max(limit * minutes + 30, 300)))
+    raw = dict(raw)
+    bars = [b for b in raw.get("bars", []) if b.get("close") is not None]
+    if not bars:
+        return {
+            "ok": False,
+            "product": product,
+            "session": session,
+            "trading_date": raw.get("trading_date"),
+            "count": 0,
+            "bars": [],
+            "source": "yahoo_fallback",
+            "error": raw.get("error"),
+        }
+    agg = _aggregate_bars(bars, minutes)[-limit:]
+    return {
+        "ok": bool(agg),
+        "product": product,
+        "session": session,
+        "trading_date": raw.get("trading_date") or (agg[-1].get("trading_date") if agg else None),
+        "count": len(agg),
+        "bars": agg,
+        "source": "yahoo_fallback",
+        "fallback": True,
+        "official_reason": "taifex_timesales_batch_not_realtime",
+    }
 
 
 def _fetch_yahoo_daily(product: str, range_value: str):
@@ -521,12 +526,20 @@ def three_min_official_first(
         if official.get("ok") and official.get("bars"):
             bars = official["bars"][-limit:]
             return {**official, "count": len(bars), "bars": bars, "fallback": False}
+
+        # Fast fallback: build genuine 3m OHLCV from Yahoo's real 1m bars.
+        # This is much safer than waiting for the huge TAIFEX TimeAndSalesData file.
+        recent = _yahoo_recent_bars(product, session, 3, limit)
+        if recent.get("ok") and recent.get("bars"):
+            recent["official_reason"] = official.get("reason")
+            return recent
     else:
         official = {"reason": "explicit_historical_date_uses_local_archive"}
 
+    # Last fallback for an explicitly requested historical date or if Yahoo 1m is unavailable.
     fallback = legacy.get_3m(product=product, trading_date=trading_date, session=session, limit=limit)
     fallback = dict(fallback)
-    fallback["source"] = "yahoo_db_fallback"
+    fallback["source"] = "local_archive_fallback"
     fallback["fallback"] = True
     fallback["official_reason"] = official.get("reason")
     return fallback
@@ -555,6 +568,21 @@ def threshold_official_first(
                 "fallback": False,
                 "provider_latency_ms": official.get("provider_latency_ms"),
             }
+
+        recent = _yahoo_recent_bars(product, session, 3, 400)
+        bars = recent.get("bars") or []
+        if bars:
+            result = legacy.compute_dynamic_threshold(bars, source_actionable=source_actionable)
+            return {
+                "product": product,
+                "trading_date": recent.get("trading_date"),
+                "session": session,
+                "count": len(bars),
+                "dynamic_threshold": result,
+                "source": "yahoo_fallback",
+                "fallback": True,
+                "official_reason": official.get("reason"),
+            }
     else:
         official = {"reason": "explicit_historical_date_uses_local_archive"}
 
@@ -565,7 +593,7 @@ def threshold_official_first(
         source_actionable=source_actionable,
     )
     fallback = dict(fallback)
-    fallback["source"] = "yahoo_db_fallback"
+    fallback["source"] = "local_archive_fallback"
     fallback["fallback"] = True
     fallback["official_reason"] = official.get("reason")
     return fallback
