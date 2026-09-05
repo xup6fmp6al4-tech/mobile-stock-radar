@@ -471,6 +471,26 @@ button{cursor:pointer}
 .mitake-cell .s{font-size:14px;font-weight:900;margin-top:3px}
 .trend-note{margin:10px 8px 0;padding:10px 12px;border:1px solid #28404a;background:#0b1418;color:#9fd8ef;font-size:12px;line-height:1.5}
 
+.trend-lower-tabs{display:grid;grid-template-columns:repeat(5,1fr);margin-top:10px;background:#11191d;border-top:2px solid #12b7ef;border-bottom:1px solid #26343a}
+.trend-lower-tab{border:0;border-right:1px solid #26343a;background:#11191d;color:#8f999d;padding:11px 2px;font-size:17px}
+.trend-lower-tab:last-child{border-right:0}
+.trend-lower-tab.active{color:#23c5ff;background:#0d2530;box-shadow:inset 0 -3px 0 #19b9f4}
+.trend-lower-panel{display:none;background:#050809;min-height:225px}
+.trend-lower-panel.active{display:block}
+.trend-depth-meta{display:grid;grid-template-columns:1fr 1.2fr 1fr 1.2fr 1fr;align-items:center;gap:4px;padding:7px 8px;background:#11181b;border-bottom:1px solid #26343a;text-align:center;font-size:14px}
+.trend-depth-meta .low{color:#24d642}.trend-depth-meta .high{color:#ff2d2d}.trend-depth-meta .spread{background:#8a0000;color:#fff;padding:4px 3px;border-radius:2px}
+.trend-book-head,.trend-book-row{display:grid;grid-template-columns:.75fr 1.2fr 1.2fr .75fr;gap:4px;text-align:center;align-items:center}
+.trend-book-head{padding:8px;background:#171f23;color:#d9e0e3;font-size:14px}
+.trend-book-row{padding:8px 6px;background:#0a0c0d;border-bottom:1px solid #171d20;font-size:21px}
+.trend-book-row:nth-child(even){background:#101314}
+.trend-book-row .qty{color:#f3e82e;font-weight:900}.trend-book-row .bid,.trend-book-row .ask{color:#ff3333;font-weight:800}
+.trend-book-row.placeholder{opacity:.45}
+.trend-lower-note{padding:8px 10px;color:#f0b429;background:#171204;font-size:12px;line-height:1.45;border-top:1px solid #4b3b0c}
+.trend-mini-grid{display:grid;grid-template-columns:repeat(3,1fr);background:#090c0e}
+.trend-mini-cell{min-height:58px;padding:9px 8px;border-right:1px solid #20282c;border-bottom:1px solid #20282c;display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.trend-mini-cell:nth-child(3n){border-right:0}.trend-mini-cell .k{font-size:14px;color:#e5e7eb}.trend-mini-cell .v{font-size:18px;font-weight:900}
+@media(max-width:520px){.trend-lower-tab{font-size:15px;padding:10px 1px}.trend-book-row{font-size:19px}.trend-depth-meta{font-size:12px}}
+
 .right-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
 .analysis-open-btn{
@@ -859,6 +879,34 @@ button{cursor:pointer}
         </div>
 
         <div class="trend-note">此頁只顯示各週期技術強弱；「目前趨勢／現在動作／3・6・9分動能／量能比／多空觸發」請點上方行情區開啟分析浮窗。</div>
+
+        <div class="trend-lower-tabs" aria-label="趨勢下方功能">
+          <button class="trend-lower-tab" data-trend-panel="trend-detail-panel">明細</button>
+          <button class="trend-lower-tab active" data-trend-panel="trend-depth-panel">五檔</button>
+          <button class="trend-lower-tab" data-trend-panel="trend-price-panel">分價</button>
+          <button class="trend-lower-tab" data-trend-panel="trend-news-panel">新聞</button>
+          <button class="trend-lower-tab" data-trend-panel="trend-alert-panel">警示</button>
+        </div>
+
+        <div id="trend-detail-panel" class="trend-lower-panel">
+          <div id="trendDetailGrid" class="trend-mini-grid"></div>
+        </div>
+
+        <div id="trend-depth-panel" class="trend-lower-panel active">
+          <div id="trendDepthMeta" class="trend-depth-meta"></div>
+          <div class="trend-book-head"><span>買量</span><span>買價</span><span>賣價</span><span>賣量</span></div>
+          <div id="trendDepthBook"></div>
+        </div>
+
+        <div id="trend-price-panel" class="trend-lower-panel">
+          <div class="empty-state"><strong>分價資料接線中</strong><span>目前沒有逐價成交量，先不拿3分K量冒充分價。</span></div>
+        </div>
+        <div id="trend-news-panel" class="trend-lower-panel">
+          <div class="empty-state"><strong>新聞資料接線中</strong><span>保留三竹同位置，不塞假新聞。</span></div>
+        </div>
+        <div id="trend-alert-panel" class="trend-lower-panel">
+          <div class="empty-state"><strong>警示功能接線中</strong><span>即時價位、突破／跌破與量能警示會放在這裡。</span></div>
+        </div>
       </div>
     </section>
   </main>
@@ -1018,6 +1066,8 @@ async function loadQuote(){
     renderSnapshot(d);
     renderDepth(d);
     renderDetailDepth(d);
+    renderTrendDepth(d);
+    renderTrendDetail(d);
     renderQuoteDetails();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
     { const st=renderMarketState(); setBadge(st.open?(d.cached?'行情快取':'行情已抓取'):'市場休息',st.open?(d.cached?'warn':'ok'):'warn'); }
@@ -1028,6 +1078,8 @@ async function loadQuote(){
     renderSnapshot(null);
     renderDepth(null);
     renderDetailDepth(null);
+    renderTrendDepth(null);
+    renderTrendDetail(null);
     renderQuoteDetails();
     console.error(err);
   }
@@ -1089,6 +1141,29 @@ function renderDetailDepth(d){
     </div>`);
   }
   box.innerHTML=rows.join('');
+}
+
+
+function renderTrendDepth(d){
+  const meta=qs('#trendDepthMeta');
+  const box=qs('#trendDepthBook');
+  if(!meta||!box)return;
+  const bid=maybeNum(d?.bid),ask=maybeNum(d?.ask),low=maybeNum(d?.low),high=maybeNum(d?.high);
+  const spread=(bid!==null&&ask!==null)?ask-bid:null;
+  meta.innerHTML=`<span>買</span><span class="low">低 ${fmt(low)}</span><span class="spread">盤差 ${fmt(spread)}</span><span class="high">高 ${fmt(high)}</span><span>賣</span>`;
+  const rows=[];
+  rows.push(`<div class="trend-book-row"><span class="qty">—</span><span class="bid">${fmt(bid)}</span><span class="ask">${fmt(ask)}</span><span class="qty">—</span></div>`);
+  for(let i=0;i<4;i++)rows.push(`<div class="trend-book-row placeholder"><span class="qty">—</span><span>—</span><span>—</span><span class="qty">—</span></div>`);
+  rows.push(`<div class="trend-lower-note">版面已照三竹補回；目前資料源只有買一／賣一，完整五檔價量接到真實來源前，其餘四檔維持「—」。</div>`);
+  box.innerHTML=rows.join('');
+}
+function renderTrendDetail(d){
+  const box=qs('#trendDetailGrid');if(!box)return;
+  const fields=[
+    ['成交',d?.last,colorClass(d?.change_pct)],['漲跌',d?.change,colorClass(d?.change_pct)],['幅度',d?.change_pct==null?null:`${signed(d.change_pct)}%`,colorClass(d?.change_pct)],
+    ['總量',d?.volume,'yellow'],['開盤',d?.open,''],['參考',d?.prev_close,'yellow'],['最低',d?.low,'down'],['最高',d?.high,'up'],['未平',d?.open_interest,'yellow']
+  ];
+  box.innerHTML=fields.map(([k,v,cls])=>{const empty=v===null||v===undefined||v==='';return `<div class="trend-mini-cell"><span class="k">${k}</span><span class="v ${cls||''}">${empty?'—':(typeof v==='string'&&v.includes('%')?v:fmt(v))}</span></div>`}).join('');
 }
 
 function maybeNum(v){
@@ -1589,6 +1664,17 @@ qsa('.detail-subtab').forEach(btn=>{
   });
 });
 
+
+qsa('.trend-lower-tab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    qsa('.trend-lower-tab').forEach(b=>b.classList.remove('active'));
+    qsa('.trend-lower-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    const panel=qs('#'+btn.dataset.trendPanel);
+    if(panel)panel.classList.add('active');
+  });
+});
+
 qsa('.tech-timeframes button[data-min]').forEach(btn=>{
   btn.addEventListener('click',()=>{
     techMinutes=Number(btn.dataset.min)||3;
@@ -1642,6 +1728,8 @@ qsa('.primary-tab').forEach(btn=>btn.addEventListener('click',()=>{
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}))}
 renderDepth(null);
 renderDetailDepth(null);
+renderTrendDepth(null);
+renderTrendDetail(null);
 renderQuoteDetails();
 renderMarketState();
 applyProduct('TX');
