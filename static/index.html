@@ -24,13 +24,32 @@
     .decision{font-size:23px;font-weight:900;margin:10px 0 4px}.trend{font-size:15px;font-weight:800;margin-top:6px}.trigger-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
     .trigger{background:#0f172a;border-radius:12px;padding:10px}.trigger .n{font-size:23px;font-weight:900;margin-top:4px}.stage{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
     .pill{font-size:12px;border:1px solid #334155;border-radius:999px;padding:5px 9px;color:#cbd5e1}.pill.active{border-color:#94a3b8;color:#fff;font-weight:800}
-    .why{margin-top:12px;background:#0f172a;border-radius:12px;padding:11px;line-height:1.6;font-size:14px}.why b{color:#fff}.analysis-only{margin-top:10px;font-size:12px;color:#fbbf24}
-    @media(max-width:430px){.grid{grid-template-columns:repeat(2,1fr)}.trigger-grid{grid-template-columns:1fr 1fr}}
+    .detail-btn{margin-top:12px;background:#0f172a;border:1px solid #334155}
+    .analysis-only{margin-top:10px;font-size:12px;color:#fbbf24}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);display:none;align-items:flex-start;justify-content:center;padding:22px 14px;z-index:9999;overflow:auto}
+    .modal-backdrop.show{display:flex}
+    .modal{width:min(720px,100%);background:#0f172a;border:1px solid #334155;border-radius:18px;padding:18px;box-shadow:0 30px 70px rgba(0,0,0,.45);margin:20px auto}
+    .modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+    .modal-title{font-size:22px;font-weight:900}
+    .modal-close{width:42px;height:42px;border-radius:999px;border:1px solid #475569;background:#111827;font-size:22px;line-height:1;padding:0}
+    .modal-sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
+    .modal-box{background:#111827;border-radius:12px;padding:12px;margin:10px 0;line-height:1.7}
+    .modal-box b{color:#fff}
+    .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+    .modal-kv{background:#111827;border-radius:12px;padding:10px}
+    .modal-kv .k{font-size:12px;color:#94a3b8}
+    .modal-kv .v{font-size:20px;font-weight:900;margin-top:4px}
+    .clickable-card{cursor:pointer}
+    @media(max-width:430px){
+      .grid{grid-template-columns:repeat(2,1fr)}
+      .trigger-grid,.modal-grid{grid-template-columns:1fr 1fr}
+      .modal{padding:14px}
+    }
   </style>
 </head>
 <body>
   <h1>📈 手機股票雷達 <span class="badge">3分K主決策</span></h1>
-  <div class="sub">原始雷達數據留在後台。App 只顯示方向、現在動作、訊號%、觸發價，以及為什麼這樣判斷。</div>
+  <div class="sub">原始雷達數據留在後台。App 只顯示方向、現在動作、訊號%、觸發價；點「查看詳情」才展開原因與補充說明。</div>
 
   <div class="row">
     <button id="refreshBtn" class="primary" onclick="loadEverything()">更新全部</button>
@@ -46,8 +65,29 @@
 
   <div class="note">3分K抓啟動、6分確認、9分決策，15分只做方向濾網。資料來源未達實盤即時標準時，只做分析，不把延遲資料當成直接下單指令。</div>
 
+  <div id="detailModalBackdrop" class="modal-backdrop" onclick="backdropClose(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <div id="modalTitle" class="modal-title">詳情</div>
+          <div id="modalSub" class="modal-sub"></div>
+        </div>
+        <button class="modal-close" onclick="closeDetailModal()">✕</button>
+      </div>
+      <div id="modalTrendBox" class="modal-box"></div>
+      <div id="modalReasonBox" class="modal-box"></div>
+      <div class="modal-grid">
+        <div class="modal-kv"><div class="k">🟢 多方重新啟動</div><div id="modalLong" class="v up">—</div></div>
+        <div class="modal-kv"><div class="k">🔴 空方重新啟動</div><div id="modalShort" class="v down">—</div></div>
+      </div>
+      <div id="modalStageBox" class="modal-box"></div>
+      <div id="modalWarningBox" class="modal-box"></div>
+    </div>
+  </div>
+
 <script>
 let deferredPrompt;let autoTimer=null;
+let latestRadarCache={};
 const cards=document.getElementById('cards');const futuresRadar=document.getElementById('futuresRadar');const refreshBtn=document.getElementById('refreshBtn');
 
 function toggleAuto(){const btn=document.getElementById('autoBtn');if(autoTimer){clearInterval(autoTimer);autoTimer=null;btn.textContent='自動更新：關';return;}autoTimer=setInterval(loadEverything,30000);btn.textContent='自動更新：30秒';}
@@ -69,15 +109,20 @@ function card(sym,d){
 const trendMap={BIG_UP:['🟢 大漲趨勢','up'],STRONG_UP:['🟢 明顯偏多','up'],UP_BIAS:['🟢 偏多','up'],UP_MOVE_WEAKENING:['🟡 上漲轉弱',''],RANGE:['🟡 盤整',''],DOWN_MOVE_WEAKENING:['🟡 下跌轉弱',''],DOWN_BIAS:['🔴 偏空','down'],STRONG_DOWN:['🔴 明顯偏空','down'],BIG_DOWN:['🔴 大跌趨勢','down']};
 const entryMap={LONG_START_3M:'🟡 3分多方啟動，先觀察',LONG_START_3M_COUNTERTREND:'🟡 3分反彈但逆勢，不追',LONG_CONFIRM_6M:'🟢 6分多方確認',LONG_DECISION_9M:'🟢 9分多方決策成立',SHORT_START_3M:'🟡 3分空方啟動，先觀察',SHORT_START_3M_COUNTERTREND:'🟡 3分下殺但逆勢，不追空',SHORT_CONFIRM_6M:'🔴 6分空方確認',SHORT_DECISION_9M:'🔴 9分空方決策成立',WAIT_NO_CHASE_UP:'🟡 等待，不追高',WAIT_NO_CHASE_DOWN:'🟡 等待，不追空',WAIT_TREND_WEAKENING:'🟡 趨勢轉弱，等待',WAIT_DIRECTION:'🟡 方向不夠明確，等待',WAIT_DATA:'⚪ 資料不足'};
 
+function stageText(key){
+  if(key==='3m_start')return'3分啟動';
+  if(key==='6m_confirm')return'6分確認';
+  if(key==='9m_decision')return'9分決策';
+  return'等待';
+}
+
 function reasonText(d){
   const m=d.metrics||{};const t=d.market_trend||{};const e=d.entry_state||'';const bits=[];
   if(d.market_trend_state==='BIG_UP')bits.push(`整體從開盤已上漲 ${signed(t.move_from_open_points)} 點，屬大漲趨勢`);
   else if(d.market_trend_state==='BIG_DOWN')bits.push(`整體從開盤已下跌 ${signed(t.move_from_open_points)} 點，屬大跌趨勢`);
   else bits.push(`目前整體方向為「${(trendMap[d.market_trend_state]||[d.market_trend_state])[0]}」`);
-
   bits.push(`最近3分 ${signed(m.momentum_3m_points)} 點、6分 ${signed(m.momentum_6m_points)} 點、9分 ${signed(m.momentum_9m_points)} 點`);
   if(m.volume_ratio!=null)bits.push(`量能約 ${fmt(m.volume_ratio)} 倍`);
-
   if(e==='WAIT_NO_CHASE_UP')bits.push('短線沒有形成新的3分突破，所以不追高');
   else if(e==='WAIT_NO_CHASE_DOWN')bits.push('短線沒有形成新的3分跌破，所以不追空');
   else if(e==='LONG_START_3M')bits.push('3分剛出現多方啟動，但還沒到6分確認');
@@ -87,16 +132,16 @@ function reasonText(d){
   else if(e==='LONG_DECISION_9M')bits.push('3分、6分、9分同方向且突破條件成立，多方訊號完整');
   else if(e==='SHORT_DECISION_9M')bits.push('3分、6分、9分同方向且跌破條件成立，空方訊號完整');
   else bits.push('短線條件還沒有同方向確認，所以先等');
-
   return bits.join('；')+'。';
 }
 
 function radarCard(session,j){
   const d=j.dynamic_threshold||{};const sessionName=session==='day'?'日盤':'夜盤';
+  latestRadarCache[session]=j;
   if(!d.ok)return`<div class="radar-card"><div class="name">${sessionName}</div><div class="status error">⚠️ ${d.reason||'資料不足'}</div></div>`;
   const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];const entry=entryMap[d.entry_state]||d.entry_state||'—';const es=d.entry_strength_pct??'—';const ts=d.market_trend_strength_pct??'—';const en=d.entry_signal||{};
-  let stage='等待';if(d.decision_stage==='3m_start')stage='3分啟動';else if(d.decision_stage==='6m_confirm')stage='6分確認';else if(d.decision_stage==='9m_decision')stage='9分決策';
-  return`<div class="radar-card">
+  const stage=stageText(d.decision_stage);
+  return`<div class="radar-card clickable-card">
     <div class="title"><div><div class="name">微臺／台指期 ${sessionName}</div><div class="sym">${j.trading_date||'—'} ・ 3分K決策</div></div><div class="pct">${fmt(d.price)}</div></div>
     <div class="trend ${tr[1]}">整體：${tr[0]} ${ts}%</div>
     <div class="decision">${entry} ${es}%</div>
@@ -105,10 +150,43 @@ function radarCard(session,j){
       <div class="trigger"><div class="label">🔴 空方重新啟動</div><div class="n down">${fmt(en.next_short_trigger_level)}</div></div>
     </div>
     <div class="stage"><span class="pill ${stage==='3分啟動'?'active':''}">3分啟動</span><span class="pill ${stage==='6分確認'?'active':''}">6分確認</span><span class="pill ${stage==='9分決策'?'active':''}">9分決策</span><span class="pill ${stage==='等待'?'active':''}">等待</span></div>
-    <div class="why"><b>為什麼：</b>${reasonText(d)}</div>
-    ${d.actionable?'':'<div class="analysis-only">⚠️ 目前僅分析：資料來源尚未允許直接轉成實盤下單指令。</div>'}
+    <button class="detail-btn" onclick="openDetailModal('${session}'); event.stopPropagation();">查看詳情</button>
   </div>`;
 }
+
+function openDetailModal(session){
+  const j=latestRadarCache[session];
+  if(!j)return;
+  const d=j.dynamic_threshold||{};
+  const sessionName=session==='day'?'日盤':'夜盤';
+  const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];
+  const entry=entryMap[d.entry_state]||d.entry_state||'—';
+  const en=d.entry_signal||{};
+  document.getElementById('modalTitle').textContent=`微臺／台指期 ${sessionName} 詳情`;
+  document.getElementById('modalSub').textContent=`${j.trading_date||'—'} ・ 現價 ${fmt(d.price)} ・ ${stageText(d.decision_stage)}`;
+  document.getElementById('modalTrendBox').innerHTML=`<b>整體：</b>${tr[0]} ${fmt(d.market_trend_strength_pct)}%<br><b>現在動作：</b>${entry} ${fmt(d.entry_strength_pct)}%`;
+  document.getElementById('modalReasonBox').innerHTML=`<b>為什麼：</b>${reasonText(d)}`;
+  document.getElementById('modalLong').textContent=fmt(en.next_long_trigger_level);
+  document.getElementById('modalShort').textContent=fmt(en.next_short_trigger_level);
+  document.getElementById('modalStageBox').innerHTML=`<b>目前階段：</b>${stageText(d.decision_stage)}<br><b>說明：</b>3分抓啟動、6分做確認、9分才做決策；15分只做方向濾網。`;
+  document.getElementById('modalWarningBox').innerHTML=d.actionable
+    ? `<b>狀態：</b>可轉交易訊號。`
+    : `<b>提醒：</b>目前僅分析，資料來源尚未允許直接轉成實盤下單指令。`;
+  const backdrop=document.getElementById('detailModalBackdrop');
+  backdrop.classList.add('show');
+  document.body.style.overflow='hidden';
+}
+
+function closeDetailModal(){
+  document.getElementById('detailModalBackdrop').classList.remove('show');
+  document.body.style.overflow='';
+}
+
+function backdropClose(event){
+  if(event.target.id==='detailModalBackdrop') closeDetailModal();
+}
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDetailModal();});
 
 async function jsonFetch(url){const r=await fetch(url,{cache:'no-store'});const text=await r.text();let j;try{j=JSON.parse(text);}catch(_){throw new Error(`HTTP ${r.status}：${text.slice(0,120)||'非 JSON 回應'}`);}if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j;}
 
