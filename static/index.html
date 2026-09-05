@@ -6,109 +6,131 @@
   <meta name="theme-color" content="#111827"/>
   <link rel="manifest" href="/manifest.webmanifest"/>
   <link rel="icon" href="/static/icon-192.png"/>
-  <title>手機股票雷達 v0.9</title>
+  <title>手機股票雷達</title>
   <style>
     :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1220;color:#f8fafc}
-    *{box-sizing:border-box} body{margin:0;padding:16px;max-width:760px;margin:auto}
-    h1{font-size:24px;margin:8px 0 4px}.sub{color:#94a3b8;margin-bottom:14px;line-height:1.5}
-    .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    *{box-sizing:border-box}body{margin:0;padding:16px;max-width:760px;margin:auto}
+    h1{font-size:24px;margin:8px 0 4px}h2{font-size:18px;margin:20px 0 8px}
+    .sub{color:#94a3b8;margin-bottom:14px;line-height:1.5}.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
     button{border-radius:12px;border:1px solid #334155;background:#111827;color:#fff;padding:12px 16px;font-size:16px;font-weight:700;cursor:pointer}
-    button.primary{background:#2563eb;border-color:#2563eb} button:disabled{opacity:.55}
-    .card{background:#111827;border:1px solid #273449;border-radius:16px;padding:14px;margin:10px 0}
-    .title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .name{font-size:20px;font-weight:800}.sym{font-size:13px;color:#94a3b8;margin-top:2px}
-    .pct{font-size:18px;font-weight:800}.price{font-size:32px;font-weight:900;margin:8px 0}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    button.primary{background:#2563eb;border-color:#2563eb}button:disabled{opacity:.55}
+    .card,.radar-card{background:#111827;border:1px solid #273449;border-radius:16px;padding:14px;margin:10px 0}
+    .radar-card{border-color:#334155;border-radius:18px;padding:16px}
+    .title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.name{font-size:20px;font-weight:800}.sym{font-size:13px;color:#94a3b8;margin-top:2px}
+    .pct{font-size:18px;font-weight:800}.price{font-size:32px;font-weight:900;margin:8px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
     .cell{background:#0f172a;border-radius:10px;padding:8px;min-height:54px}.label{font-size:12px;color:#94a3b8}.val{font-weight:700;margin-top:3px}
-    .up{color:#f87171}.down{color:#4ade80}.muted{color:#94a3b8}
-    .status{font-size:12px;margin-top:10px;color:#cbd5e1;line-height:1.45}.error{color:#fca5a5}
+    .up{color:#f87171}.down{color:#4ade80}.muted{color:#94a3b8}.status{font-size:12px;margin-top:10px;color:#cbd5e1;line-height:1.45}.error{color:#fca5a5}
     .note{font-size:13px;color:#94a3b8;line-height:1.6;margin-top:16px}.badge{font-size:11px;border:1px solid #334155;border-radius:999px;padding:2px 7px;color:#cbd5e1}
-    @media(max-width:430px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .decision{font-size:23px;font-weight:900;margin:10px 0 4px}.trend{font-size:15px;font-weight:800;margin-top:6px}.trigger-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+    .trigger{background:#0f172a;border-radius:12px;padding:10px}.trigger .n{font-size:23px;font-weight:900;margin-top:4px}.stage{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    .pill{font-size:12px;border:1px solid #334155;border-radius:999px;padding:5px 9px;color:#cbd5e1}.pill.active{border-color:#94a3b8;color:#fff;font-weight:800}
+    .why{margin-top:12px;background:#0f172a;border-radius:12px;padding:11px;line-height:1.6;font-size:14px}.why b{color:#fff}.analysis-only{margin-top:10px;font-size:12px;color:#fbbf24}
+    @media(max-width:430px){.grid{grid-template-columns:repeat(2,1fr)}.trigger-grid{grid-template-columns:1fr 1fr}}
   </style>
 </head>
 <body>
-  <h1>📈 手機股票雷達 <span class="badge">v0.6</span></h1>
-  <div class="sub">Yahoo 股市輕量 HTTP 行情版。直接抓 6770 力積電、2609 陽明、WTX&amp; 台指期近一，不必貼網址。</div>
+  <h1>📈 手機股票雷達 <span class="badge">3分K主決策</span></h1>
+  <div class="sub">原始雷達數據留在後台。App 只顯示方向、現在動作、訊號%、觸發價，以及為什麼這樣判斷。</div>
 
   <div class="row">
-    <button id="refreshBtn" class="primary" onclick="loadAll()">更新全部</button>
+    <button id="refreshBtn" class="primary" onclick="loadEverything()">更新全部</button>
     <button onclick="addToHome()">安裝 App</button>
     <button id="autoBtn" onclick="toggleAuto()">自動更新：關</button>
   </div>
 
+  <h2>期貨決策雷達</h2>
+  <div id="futuresRadar"><div class="muted">準備讀取期貨雷達…</div></div>
+
+  <h2>行情觀察</h2>
   <div id="cards"><div class="muted">準備抓取…</div></div>
 
-  <div class="note">
-    這版只讀公開行情，不含下單功能。v0.6 已移除 Chromium，降低 Render 免費 512MB 記憶體不足造成 Failed to fetch 的機率。若 Yahoo 改版，會顯示實際錯誤，不猜數字。<br/>
-    Render 免費方案閒置後會休眠，第一次更新仍可能需要稍久。
-  </div>
+  <div class="note">3分K抓啟動、6分確認、9分決策，15分只做方向濾網。資料來源未達實盤即時標準時，只做分析，不把延遲資料當成直接下單指令。</div>
 
 <script>
-let deferredPrompt;
-let autoTimer=null;
-const cards=document.getElementById('cards');
-const refreshBtn=document.getElementById('refreshBtn');
+let deferredPrompt;let autoTimer=null;
+const cards=document.getElementById('cards');const futuresRadar=document.getElementById('futuresRadar');const refreshBtn=document.getElementById('refreshBtn');
 
-function toggleAuto(){
-  const btn=document.getElementById('autoBtn');
-  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; btn.textContent='自動更新：關'; return; }
-  autoTimer=setInterval(loadAll, 60000);
-  btn.textContent='自動更新：60秒';
-}
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
-async function addToHome(){
-  if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt=null; }
-  else alert('Android Chrome：右上角選單 → 加到主畫面 / 安裝應用程式');
-}
-function fmt(v){
-  if(v===null || v===undefined || Number.isNaN(Number(v))) return '—';
-  return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:2});
-}
-function clsFor(v){ return (v??0)>0?'up':((v??0)<0?'down':''); }
-function cell(label,value){ return `<div class="cell"><div class="label">${label}</div><div class="val">${fmt(value)}</div></div>`; }
+function toggleAuto(){const btn=document.getElementById('autoBtn');if(autoTimer){clearInterval(autoTimer);autoTimer=null;btn.textContent='自動更新：關';return;}autoTimer=setInterval(loadEverything,30000);btn.textContent='自動更新：30秒';}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;});
+async function addToHome(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt=null;}else alert('Android Chrome：右上角選單 → 加到主畫面 / 安裝應用程式');}
+function fmt(v){if(v===null||v===undefined||Number.isNaN(Number(v)))return'—';return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:2});}
+function signed(v){if(v===null||v===undefined||Number.isNaN(Number(v)))return'—';const n=Number(v);return`${n>0?'+':''}${fmt(n)}`;}
+function clsFor(v){return(v??0)>0?'up':((v??0)<0?'down':'');}
+function cell(label,value){return`<div class="cell"><div class="label">${label}</div><div class="val">${fmt(value)}</div></div>`;}
+
 function card(sym,d){
-  if(d.ok===false){
-    return `<div class="card"><div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div></div>
-      <div class="status error">⚠️ ${d.error||'抓取失敗'}</div></div>`;
-  }
-  const cls=clsFor(d.change_pct);
-  const pct=d.change_pct==null?'':`${d.change_pct>0?'+':''}${fmt(d.change_pct)}%`;
-  const isFuture=(d.kind==='future'||sym==='WTX&');
-  const extra=isFuture
-    ? `${cell('買價',d.bid)}${cell('賣價',d.ask)}${cell('未平倉',d.open_interest)}`
-    : `${cell('昨收',d.prev_close)}${cell('總量',d.volume)}${cell('漲跌',d.change)}`;
+  if(d.ok===false)return`<div class="card"><div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div></div><div class="status error">⚠️ ${d.error||'抓取失敗'}</div></div>`;
+  const cls=clsFor(d.change_pct);const pct=d.change_pct==null?'':`${d.change_pct>0?'+':''}${fmt(d.change_pct)}%`;const isFuture=(d.kind==='future'||sym==='WTX&');
+  const extra=isFuture?`${cell('買價',d.bid)}${cell('賣價',d.ask)}${cell('未平倉',d.open_interest)}`:`${cell('昨收',d.prev_close)}${cell('總量',d.volume)}${cell('漲跌',d.change)}`;
   const when=d.ts_server?new Date(d.ts_server).toLocaleString('zh-TW'):'—';
-  return `<div class="card">
-    <div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div><div class="pct ${cls}">${pct}</div></div>
-    <div class="price ${cls}">${fmt(d.last)}</div>
-    <div class="grid">
-      ${cell('開盤',d.open)}${cell('最高',d.high)}${cell('最低',d.low)}${extra}
+  return`<div class="card"><div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div><div class="pct ${cls}">${pct}</div></div><div class="price ${cls}">${fmt(d.last)}</div><div class="grid">${cell('開盤',d.open)}${cell('最高',d.high)}${cell('最低',d.low)}${extra}</div><div class="status">更新：${when}${d.cached?'（快取）':''}</div></div>`;
+}
+
+const trendMap={BIG_UP:['🟢 大漲趨勢','up'],STRONG_UP:['🟢 明顯偏多','up'],UP_BIAS:['🟢 偏多','up'],UP_MOVE_WEAKENING:['🟡 上漲轉弱',''],RANGE:['🟡 盤整',''],DOWN_MOVE_WEAKENING:['🟡 下跌轉弱',''],DOWN_BIAS:['🔴 偏空','down'],STRONG_DOWN:['🔴 明顯偏空','down'],BIG_DOWN:['🔴 大跌趨勢','down']};
+const entryMap={LONG_START_3M:'🟡 3分多方啟動，先觀察',LONG_START_3M_COUNTERTREND:'🟡 3分反彈但逆勢，不追',LONG_CONFIRM_6M:'🟢 6分多方確認',LONG_DECISION_9M:'🟢 9分多方決策成立',SHORT_START_3M:'🟡 3分空方啟動，先觀察',SHORT_START_3M_COUNTERTREND:'🟡 3分下殺但逆勢，不追空',SHORT_CONFIRM_6M:'🔴 6分空方確認',SHORT_DECISION_9M:'🔴 9分空方決策成立',WAIT_NO_CHASE_UP:'🟡 等待，不追高',WAIT_NO_CHASE_DOWN:'🟡 等待，不追空',WAIT_TREND_WEAKENING:'🟡 趨勢轉弱，等待',WAIT_DIRECTION:'🟡 方向不夠明確，等待',WAIT_DATA:'⚪ 資料不足'};
+
+function reasonText(d){
+  const m=d.metrics||{};const t=d.market_trend||{};const e=d.entry_state||'';const bits=[];
+  if(d.market_trend_state==='BIG_UP')bits.push(`整體從開盤已上漲 ${signed(t.move_from_open_points)} 點，屬大漲趨勢`);
+  else if(d.market_trend_state==='BIG_DOWN')bits.push(`整體從開盤已下跌 ${signed(t.move_from_open_points)} 點，屬大跌趨勢`);
+  else bits.push(`目前整體方向為「${(trendMap[d.market_trend_state]||[d.market_trend_state])[0]}」`);
+
+  bits.push(`最近3分 ${signed(m.momentum_3m_points)} 點、6分 ${signed(m.momentum_6m_points)} 點、9分 ${signed(m.momentum_9m_points)} 點`);
+  if(m.volume_ratio!=null)bits.push(`量能約 ${fmt(m.volume_ratio)} 倍`);
+
+  if(e==='WAIT_NO_CHASE_UP')bits.push('短線沒有形成新的3分突破，所以不追高');
+  else if(e==='WAIT_NO_CHASE_DOWN')bits.push('短線沒有形成新的3分跌破，所以不追空');
+  else if(e==='LONG_START_3M')bits.push('3分剛出現多方啟動，但還沒到6分確認');
+  else if(e==='SHORT_START_3M')bits.push('3分剛出現空方啟動，但還沒到6分確認');
+  else if(e==='LONG_CONFIRM_6M')bits.push('3分啟動後，6分仍延續向上，確認度提高');
+  else if(e==='SHORT_CONFIRM_6M')bits.push('3分啟動後，6分仍延續向下，確認度提高');
+  else if(e==='LONG_DECISION_9M')bits.push('3分、6分、9分同方向且突破條件成立，多方訊號完整');
+  else if(e==='SHORT_DECISION_9M')bits.push('3分、6分、9分同方向且跌破條件成立，空方訊號完整');
+  else bits.push('短線條件還沒有同方向確認，所以先等');
+
+  return bits.join('；')+'。';
+}
+
+function radarCard(session,j){
+  const d=j.dynamic_threshold||{};const sessionName=session==='day'?'日盤':'夜盤';
+  if(!d.ok)return`<div class="radar-card"><div class="name">${sessionName}</div><div class="status error">⚠️ ${d.reason||'資料不足'}</div></div>`;
+  const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];const entry=entryMap[d.entry_state]||d.entry_state||'—';const es=d.entry_strength_pct??'—';const ts=d.market_trend_strength_pct??'—';const en=d.entry_signal||{};
+  let stage='等待';if(d.decision_stage==='3m_start')stage='3分啟動';else if(d.decision_stage==='6m_confirm')stage='6分確認';else if(d.decision_stage==='9m_decision')stage='9分決策';
+  return`<div class="radar-card">
+    <div class="title"><div><div class="name">微臺／台指期 ${sessionName}</div><div class="sym">${j.trading_date||'—'} ・ 3分K決策</div></div><div class="pct">${fmt(d.price)}</div></div>
+    <div class="trend ${tr[1]}">整體：${tr[0]} ${ts}%</div>
+    <div class="decision">${entry} ${es}%</div>
+    <div class="trigger-grid">
+      <div class="trigger"><div class="label">🟢 多方重新啟動</div><div class="n up">${fmt(en.next_long_trigger_level)}</div></div>
+      <div class="trigger"><div class="label">🔴 空方重新啟動</div><div class="n down">${fmt(en.next_short_trigger_level)}</div></div>
     </div>
-    <div class="status">更新：${when}${d.cached?'（快取）':''}</div>
+    <div class="stage"><span class="pill ${stage==='3分啟動'?'active':''}">3分啟動</span><span class="pill ${stage==='6分確認'?'active':''}">6分確認</span><span class="pill ${stage==='9分決策'?'active':''}">9分決策</span><span class="pill ${stage==='等待'?'active':''}">等待</span></div>
+    <div class="why"><b>為什麼：</b>${reasonText(d)}</div>
+    ${d.actionable?'':'<div class="analysis-only">⚠️ 目前僅分析：資料來源尚未允許直接轉成實盤下單指令。</div>'}
   </div>`;
 }
-async function jsonFetch(url){
-  const r=await fetch(url,{cache:'no-store'});
-  const text=await r.text();
-  let j;
-  try{ j=JSON.parse(text); }catch(_){ throw new Error(`HTTP ${r.status}：${text.slice(0,120)||'非 JSON 回應'}`); }
-  if(!r.ok) throw new Error(j.detail||`HTTP ${r.status}`);
-  return j;
-}
-async function loadAll(){
-  refreshBtn.disabled=true;
-  cards.innerHTML='<div class="muted">抓取中… v0.6 不啟動雲端瀏覽器，通常數秒內完成。</div>';
+
+async function jsonFetch(url){const r=await fetch(url,{cache:'no-store'});const text=await r.text();let j;try{j=JSON.parse(text);}catch(_){throw new Error(`HTTP ${r.status}：${text.slice(0,120)||'非 JSON 回應'}`);}if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j;}
+
+async function loadFuturesRadar(){
   try{
-    const j=await jsonFetch('/api/all');
-    cards.innerHTML=Object.entries(j).map(([s,d])=>card(s,d)).join('');
-  }catch(e){
-    cards.innerHTML='<div class="card"><div class="status error">連線失敗：'+String(e.message||e)+'</div></div>';
-  }finally{ refreshBtn.disabled=false; }
+    const [day,night]=await Promise.all([jsonFetch('/api/blackbox/futures/threshold?session=day'),jsonFetch('/api/blackbox/futures/threshold?session=night')]);
+    futuresRadar.innerHTML=radarCard('day',day)+radarCard('night',night);
+  }catch(e){futuresRadar.innerHTML=`<div class="radar-card"><div class="status error">期貨雷達讀取失敗：${String(e.message||e)}</div></div>`;}
 }
 
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}); }
-window.addEventListener('online', loadAll);
-loadAll();
+async function loadQuotes(){
+  try{const j=await jsonFetch('/api/all');cards.innerHTML=Object.entries(j).map(([s,d])=>card(s,d)).join('');}
+  catch(e){cards.innerHTML='<div class="card"><div class="status error">行情連線失敗：'+String(e.message||e)+'</div></div>';}
+}
+
+async function loadEverything(){
+  refreshBtn.disabled=true;futuresRadar.innerHTML='<div class="muted">雷達判讀中…</div>';cards.innerHTML='<div class="muted">行情抓取中…</div>';
+  try{await Promise.all([loadFuturesRadar(),loadQuotes()]);}finally{refreshBtn.disabled=false;}
+}
+
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'});}
+window.addEventListener('online',loadEverything);loadEverything();
 </script>
 </body>
 </html>
