@@ -3,6 +3,7 @@ import math
 from typing import Any
 from fastapi import APIRouter, Query
 from db import db, fetchall_dict, fetchone_dict, USING_POSTGRES
+from dynamic_threshold import compute_dynamic_threshold
 
 router = APIRouter(prefix="/api/blackbox/futures", tags=["futures"])
 
@@ -237,3 +238,36 @@ def similar(target_trading_date:str,product:str="TXF_CONT",
             top_n:int=Query(5,ge=1,le=20),
             cutoff_bar_index:int|None=Query(None,ge=19,le=280)):
     return find_similar(product,target_trading_date,start,end,top_n,cutoff_bar_index)
+
+@router.get("/threshold")
+def threshold(
+    product: str = "TXF_CONT",
+    trading_date: str | None = None,
+    session: str = Query("day", pattern="^(day|night)$"),
+    source_actionable: bool = False,
+):
+    ensure_tables()
+    q = p()
+
+    with db() as con:
+        if not trading_date:
+            x = fetchone_dict(
+                con,
+                f"SELECT MAX(trading_date) d FROM futures_3m WHERE product={q} AND session={q}",
+                (product, session),
+            )
+            trading_date = x["d"] if x else None
+
+    rs = [] if not trading_date else rows(product, trading_date, session)
+    result = compute_dynamic_threshold(
+        rs,
+        source_actionable=source_actionable,
+    )
+
+    return {
+        "product": product,
+        "trading_date": trading_date,
+        "session": session,
+        "count": len(rs),
+        "dynamic_threshold": result,
+    }
