@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from futures_similarity import router as futures_router
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -41,8 +42,8 @@ _cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 CACHE_SECONDS = int(os.getenv("QUOTE_CACHE_SECONDS", "15"))
 HTTP_TIMEOUT = int(os.getenv("YAHOO_HTTP_TIMEOUT", "15"))
 MAX_BYTES = int(os.getenv("YAHOO_MAX_BYTES", str(6 * 1024 * 1024)))
-
 app = FastAPI(title="Mobile Stock Radar", version="0.5.0")
+app.include_router(futures_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
