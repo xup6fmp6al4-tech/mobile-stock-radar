@@ -1,0 +1,1425 @@
+<!doctype html><html lang="zh-Hant"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#06324a"/><link rel="manifest" href="/manifest.webmanifest"/><link rel="icon" href="/static/icon-192.png"/>
+<title>市場雷達</title><style>
+:root{
+  --bg:#030607;
+  --panel:#0d1214;
+  --panel-2:#172126;
+  --nav:#06324a;
+  --cyan:#19b9f4;
+  --red:#ff2d2d;
+  --green:#24d642;
+  --yellow:#e0dc35;
+  --text:#f4f4f4;
+  --muted:#9ba6aa;
+  --line:#25333a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#000;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+a{color:inherit;text-decoration:none}
+button,select{font:inherit}
+button{cursor:pointer}
+.app-body{display:flex;justify-content:center}
+.app-shell{
+  width:100%;
+  max-width:690px;
+  min-height:100vh;
+  background:var(--bg);
+}
+.home-header{
+  height:64px;
+  background:var(--nav);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-bottom:1px solid #0a6487;
+}
+.home-brand{font-size:28px;font-weight:800}
+.home-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  background:#073d5c;
+  border-left:1px solid #174f6b;
+  border-top:1px solid #174f6b;
+}
+.home-tile{
+  min-height:155px;
+  border:0;
+  border-right:1px solid #195874;
+  border-bottom:1px solid #195874;
+  background:#07476a;
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+}
+.home-tile.active-link:active{background:#0a5a84}
+.home-tile.disabled{
+  opacity:.52;
+  cursor:default;
+}
+.tile-icon{font-size:52px;line-height:1;font-weight:700}
+.tile-label{font-size:23px;font-weight:700}
+.home-status{
+  padding:18px;
+  font-size:18px;
+  background:#0d171b;
+  border-top:1px solid var(--line);
+}
+.muted{color:var(--muted);margin-top:6px;font-size:15px}
+
+.futures-header{
+  height:64px;
+  background:var(--nav);
+  display:grid;
+  grid-template-columns:70px 1fr 70px;
+  align-items:center;
+  border-bottom:1px solid #0a6487;
+}
+.contract-arrow{
+  height:100%;
+  background:transparent;
+  border:0;
+  color:#fff;
+  font-size:32px;
+}
+.contract-title{
+  height:100%;
+  border:0;
+  background:transparent;
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.contract-title span{font-size:28px;font-weight:800}
+.contract-title small{font-size:13px;color:#79d9ff;font-weight:700}
+.contract-menu{
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  width:min(88vw,460px);
+  top:64px;
+  z-index:40;
+  border:1px solid var(--cyan);
+  background:#11181b;
+  box-shadow:0 10px 28px rgba(0,0,0,.5);
+}
+.contract-menu[hidden]{display:none}
+.contract-menu button{
+  width:100%;
+  padding:15px 18px;
+  background:#11181b;
+  color:#fff;
+  border:0;
+  border-bottom:1px solid #2a363b;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:20px;
+}
+.contract-menu button.active{background:#0b5f84}
+.contract-menu button span{color:#75d6ff;font-size:16px}
+
+.page-actions{
+  min-height:58px;
+  padding:8px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  background:#071014;
+  border-bottom:1px solid var(--line);
+}
+.back-main-btn{
+  min-height:44px;
+  padding:10px 18px;
+  border:1px solid #2c88ad;
+  border-radius:8px;
+  background:#123a4d;
+  font-size:18px;
+  font-weight:800;
+}
+.data-badge{
+  padding:6px 10px;
+  border-radius:14px;
+  background:#5b5f63;
+  color:#fff;
+  font-size:13px;
+}
+
+.freshness-strip{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:6px 10px;
+  background:#0b1418;
+  border-bottom:1px solid #26343a;
+  color:#9fd8ef;
+  font-size:12px;
+}
+@media(max-width:520px){
+  .freshness-strip{font-size:11px;flex-wrap:wrap;gap:3px}
+}
+
+.quote-summary{
+  display:grid;
+  grid-template-columns:1.1fr .8fr 1.25fr;
+  gap:8px;
+  padding:9px 10px;
+  border-bottom:1px solid var(--line);
+}
+.quote-left,.quote-mid,.quote-right{display:flex;flex-direction:column;justify-content:center}
+.last-price{font-size:52px;line-height:1;font-weight:800}
+.change-text{font-size:22px;margin-top:5px}
+.quote-mid{font-size:18px;gap:8px}
+.symbol-line{display:flex;gap:14px;color:#f2df35}
+.quote-right{gap:7px}
+.quote-box{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:7px 10px;
+  border:1px solid #4d3434;
+  background:#090b0c;
+}
+.quote-box span{font-size:17px}
+.quote-box strong{font-size:21px}
+.quote-time{text-align:right;color:#ffe93b;font-size:15px}
+.up{color:var(--red)}
+.down{color:var(--green)}
+.yellow{color:var(--yellow)}
+
+.primary-tabs{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  background:#172126;
+  border-bottom:3px solid var(--cyan);
+}
+.primary-tab{
+  padding:13px 3px;
+  border:0;
+  background:#172126;
+  color:#8f999d;
+  font-size:19px;
+}
+.primary-tab.active{background:#1db7ee;color:#fff}
+.futures-view{display:none}
+.futures-view.active{display:block}
+
+.secondary-tabs{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  background:#172126;
+}
+.secondary-tab{
+  padding:12px;
+  background:#172126;
+  color:#8f999d;
+  border:1px solid #25343a;
+  font-size:19px;
+}
+.secondary-tab.active{color:#fff;border-color:#18aefa;box-shadow:inset 0 0 0 1px #18aefa}
+.detail-pane{display:none}
+.detail-pane.active{display:block}
+
+
+.detail-subtabs{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  background:#11191d;
+  border-top:2px solid #12b7ef;
+  border-bottom:1px solid #2b3940;
+}
+.detail-subtab{
+  border:0;
+  border-right:1px solid #26343a;
+  background:#11191d;
+  color:#8f999d;
+  padding:11px 4px;
+  font-size:18px;
+}
+.detail-subtab:last-child{border-right:0}
+.detail-subtab.active{
+  color:#fff;
+  background:#0d2530;
+  box-shadow:inset 0 -3px 0 #19b9f4;
+}
+.detail-bottom-panel{display:none}
+.detail-bottom-panel.active{display:block}
+.quote-detail-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  background:#090c0e;
+  border-bottom:1px solid #26343a;
+}
+.quote-detail-cell{
+  min-height:62px;
+  padding:10px 8px;
+  border-right:1px solid #20282c;
+  border-bottom:1px solid #20282c;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:8px;
+}
+.quote-detail-cell:nth-child(3n){border-right:0}
+.quote-detail-cell .k{font-size:16px;color:#e5e7eb}
+.quote-detail-cell .v{font-size:20px;font-weight:800}
+.quote-detail-cell .v.muted-val{color:#6b7280}
+
+.table-head{
+  background:#192125;
+  color:#fff;
+  padding:11px 8px;
+  border-bottom:1px solid var(--line);
+  font-size:18px;
+  text-align:center;
+}
+.tick-cols{display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr 1.15fr .7fr;gap:4px}
+.tick-row{
+  display:grid;
+  grid-template-columns:1.35fr 1.15fr 1.15fr 1.15fr .7fr;
+  padding:10px 8px;
+  text-align:center;
+  font-size:19px;
+  border-bottom:1px solid #171d20;
+}
+.tick-row:nth-child(even){background:#0c0f10}
+.range-panel{padding:14px}
+.range-panel button{
+  width:100%;
+  padding:17px;
+  border:0;
+  border-bottom:1px solid #979797;
+  background:#c9c9c9;
+  font-size:22px;
+}
+
+.chips{
+  display:flex;
+  overflow:auto;
+  gap:7px;
+  padding:8px;
+  background:#0f1518;
+}
+.chips button{
+  flex:0 0 auto;
+  border:0;
+  border-radius:5px;
+  background:#151a1d;
+  color:#d6d9db;
+  padding:8px 13px;
+  font-size:17px;
+}
+.chips button.active{background:#d7d7d7;color:#333}
+.chips button:disabled{opacity:.32;cursor:not-allowed}
+
+.chart-card{padding:8px;background:#040606}
+.chart-card canvas{
+  width:100%;
+  height:330px;
+  display:block;
+  background:#000;
+  border:1px solid #233037;
+}
+.chart-card.small canvas{height:190px}
+.chart-card.tall canvas{height:400px}
+.indicator-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+  padding:8px 10px;
+  background:#11181b;
+  border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+}
+
+.institution-toolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px;
+  background:#11181b;
+}
+.institution-toolbar select{
+  max-width:48%;
+  padding:10px;
+  background:#2b3337;
+  color:#fff;
+  border:0;
+  font-size:17px;
+}
+.mode-toggle{display:flex}
+.mode-toggle button{
+  padding:10px 13px;
+  background:#090b0c;
+  color:#ddd;
+  border:1px solid #4f5e64;
+  font-size:17px;
+}
+.mode-toggle button.active{border-color:#18aefa;box-shadow:inset 0 0 0 1px #18aefa}
+.institution-cols{display:grid;grid-template-columns:1.05fr 1fr 1fr 1fr 1fr;gap:4px}
+.institution-row{
+  display:grid;
+  grid-template-columns:1.05fr 1fr 1fr 1fr 1fr;
+  gap:4px;
+  padding:13px 8px;
+  text-align:center;
+  border-bottom:1px solid #1f272b;
+  font-size:17px;
+}
+
+.signal-timeframe{
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:5px;
+  padding:10px 8px;
+  background:#0d1214;
+}
+.signal-timeframe div{display:flex;flex-direction:column;align-items:center;gap:4px}
+.signal-timeframe span{font-size:13px}
+.signal-timeframe b{width:100%;padding:7px 2px;border-radius:4px;text-align:center;font-size:13px}
+.strong{background:#7b0000;color:#fff}
+.weak{background:#035b12;color:#fff}
+.signal-summary{border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.signal-summary>div{
+  display:grid;
+  grid-template-columns:1.6fr 1.1fr .8fr .8fr;
+  gap:8px;
+  align-items:center;
+  padding:11px 10px;
+  font-size:17px;
+}
+.badge{text-align:center;padding:8px}
+.section-title{
+  margin-top:8px;
+  padding:10px;
+  text-align:center;
+  background:#054263;
+  font-size:19px;
+}
+.metric-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:6px;
+  padding:8px;
+  background:#0b0e10;
+}
+.metric-grid>div{
+  min-height:92px;
+  padding:8px;
+  border:2px solid #6d2b1c;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.metric-grid span{font-size:16px;color:#a9b0b3}
+.metric-grid strong{font-size:19px;margin:3px 0}
+.metric-grid b{font-size:17px;color:var(--red)}
+
+@media (max-width:520px){
+  .home-header,.futures-header{height:58px}
+  .home-brand{font-size:24px}
+  .home-tile{min-height:128px}
+  .tile-icon{font-size:42px}
+  .tile-label{font-size:18px}
+  .futures-header{grid-template-columns:54px 1fr 54px}
+  .contract-title span{font-size:24px}
+  .contract-menu{top:58px}
+  .quote-summary{grid-template-columns:1fr .75fr 1.05fr}
+  .last-price{font-size:41px}
+  .change-text{font-size:17px}
+  .quote-mid{font-size:15px}
+  .quote-box span{font-size:14px}
+  .quote-box strong{font-size:17px}
+  .primary-tab{font-size:16px}
+  .table-head,.tick-row{font-size:15px}
+  .metric-grid strong{font-size:16px}
+}
+
+.right-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+
+.analysis-open-btn{
+  border:1px solid #f0b429;
+  background:#5c4300;
+  color:#fff4b5;
+  padding:8px 13px;
+  border-radius:9px;
+  font-size:15px;
+  font-weight:900;
+  box-shadow:0 0 0 1px rgba(240,180,41,.2) inset;
+}
+.analysis-open-btn:active{transform:translateY(1px);background:#765700}
+
+.analysis-overlay{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  display:none;
+  align-items:flex-start;
+  justify-content:center;
+  padding:env(safe-area-inset-top, 12px) 12px 24px;
+  background:rgba(0,0,0,.78);
+  overflow:auto;
+}
+.analysis-overlay.show{display:flex}
+.analysis-modal{
+  width:min(660px,100%);
+  margin-top:18px;
+  background:#071014;
+  border:2px solid #19b9f4;
+  border-radius:16px;
+  box-shadow:0 24px 70px rgba(0,0,0,.65);
+  overflow:hidden;
+}
+.analysis-modal-head{
+  position:sticky;
+  top:0;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 16px;
+  background:#06324a;
+  border-bottom:1px solid #167ea6;
+}
+.analysis-title{font-size:24px;font-weight:900}
+.analysis-sub{margin-top:3px;color:#b8dceb;font-size:13px}
+.analysis-close{
+  width:44px;
+  height:44px;
+  border-radius:999px;
+  border:1px solid #5faecb;
+  background:#082431;
+  color:#fff;
+  font-size:22px;
+  font-weight:900;
+}
+.analysis-body{padding:12px}
+.analysis-hero{
+  border:1px solid #334155;
+  border-radius:14px;
+  background:#0f172a;
+  padding:14px;
+  margin-bottom:10px;
+}
+.analysis-hero .label{font-size:13px;color:#94a3b8}
+.analysis-hero .decision{font-size:27px;font-weight:900;margin:5px 0}
+.analysis-hero .strength{font-size:17px;font-weight:800}
+.analysis-grid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px;
+  margin-bottom:10px;
+}
+.analysis-kv{
+  background:#0f172a;
+  border-radius:12px;
+  padding:11px;
+  border:1px solid #273449;
+}
+.analysis-kv .k{font-size:12px;color:#94a3b8}
+.analysis-kv .v{font-size:20px;font-weight:900;margin-top:4px}
+.analysis-reason{
+  background:#111827;
+  border:1px solid #334155;
+  border-radius:12px;
+  padding:12px;
+  line-height:1.65;
+  color:#e2e8f0;
+}
+.analysis-warning{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:#2a2108;
+  border:1px solid #6b5310;
+  color:#fbbf24;
+  font-size:13px;
+  line-height:1.5;
+}
+.analysis-foot{
+  padding:10px 14px;
+  background:#05090b;
+  border-top:1px solid #26343a;
+  color:#94a3b8;
+  font-size:12px;
+  line-height:1.5;
+}
+@media(max-width:520px){
+  .analysis-open-btn{padding:8px 10px;font-size:14px}
+  .analysis-modal{margin-top:8px}
+  .analysis-grid{grid-template-columns:1fr 1fr}
+}
+
+.session-btn{border:1px solid #41515a;background:#11181b;color:#cbd5e1;padding:7px 10px;border-radius:8px;font-size:14px}
+.session-btn.active{background:#0b6f99;color:#fff;border-color:#19b9f4}
+.honesty-note{padding:10px 12px;color:#fbbf24;background:#16130a;border-bottom:1px solid #56460f;font-size:13px;line-height:1.45}
+.snapshot-row{display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr 1.15fr .85fr;gap:4px;padding:12px 8px;text-align:center;font-size:18px;border-bottom:1px solid #171d20}
+.subsection-title{padding:10px 12px;background:#0d171b;border-top:1px solid #25333a;border-bottom:1px solid #25333a;font-size:17px;font-weight:800}
+.bar-cols{display:grid;grid-template-columns:1.35fr repeat(4,1fr) .85fr;gap:4px}
+.bar-row{display:grid;grid-template-columns:1.35fr repeat(4,1fr) .85fr;gap:4px;padding:9px 8px;text-align:center;font-size:16px;border-bottom:1px solid #171d20}
+.bar-row:nth-child(even){background:#0c0f10}
+.chart-meta{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;background:#0f1518;color:#cbd5e1;font-size:14px}
+.empty-state{min-height:250px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;color:#cbd5e1}
+.empty-state strong{font-size:22px;color:#fff}
+.empty-state span{max-width:520px;line-height:1.6;color:#94a3b8}
+.signal-content{padding:10px}
+.signal-card{background:#111827;border:1px solid #334155;border-radius:14px;padding:14px;margin-bottom:10px}
+.signal-card .big{font-size:24px;font-weight:900;margin:6px 0}
+.signal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.signal-kv{background:#0f172a;border-radius:10px;padding:10px}
+.signal-kv .k{font-size:12px;color:#94a3b8}
+.signal-kv .v{font-size:20px;font-weight:900;margin-top:4px}
+
+.depth-title{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 12px;
+  background:#0e171b;
+  border-top:2px solid #16b9f2;
+  border-bottom:1px solid #26343a;
+}
+.depth-title>span{font-size:21px;font-weight:900;color:#21c3ff}
+.depth-title small{font-size:12px;color:#fbbf24;text-align:right;line-height:1.4}
+.depth-head{
+  background:#172126;
+  color:#aeb8bd;
+  padding:8px 10px;
+  border-bottom:1px solid #2b3a40;
+  font-size:14px;
+  text-align:center;
+}
+.depth-cols{display:grid;grid-template-columns:.8fr 1.2fr 1.2fr .8fr;gap:5px}
+.depth-row{
+  display:grid;
+  grid-template-columns:.8fr 1.2fr 1.2fr .8fr;
+  gap:5px;
+  align-items:center;
+  padding:9px 10px;
+  border-bottom:1px solid #171d20;
+  text-align:center;
+  font-size:22px;
+  background:#070909;
+}
+.depth-row:nth-child(even){background:#0b0d0e}
+.depth-row .qty{color:#f1e532;font-weight:800}
+.depth-row .bid{color:#ff3131;font-weight:800}
+.depth-row .ask{color:#ff3131;font-weight:800}
+.depth-row.placeholder{opacity:.48}
+.depth-note{
+  padding:9px 12px;
+  color:#94a3b8;
+  background:#0b1114;
+  font-size:12px;
+  line-height:1.45;
+  border-bottom:1px solid #233037;
+}
+
+@media(max-width:520px){
+  .page-actions{align-items:flex-start}
+  .right-actions{max-width:55%}
+  .snapshot-row{font-size:15px}
+  .bar-row,.bar-cols{font-size:13px}
+}
+
+.page{display:none}.page.active{display:block}.back-main-btn{cursor:pointer}
+</style></head><body class="app-body">
+<section id="homePage" class="page active">
+  <main class="app-shell">
+    <header class="home-header"><div class="home-brand">市場首頁</div></header>
+
+    <section class="home-grid" aria-label="市場功能">
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">〰</div><div class="tile-label">大盤動態</div>
+      </button>
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">☷</div><div class="tile-label">類股報價</div>
+      </button>
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">☆</div><div class="tile-label">自選報價</div>
+      </button>
+
+      <button class="home-tile active-link" id="openFutures">
+        <div class="tile-icon">▣</div><div class="tile-label">期貨</div>
+      </button>
+
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">◎</div><div class="tile-label">國際金融</div>
+      </button>
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">★</div><div class="tile-label">美股報價</div>
+      </button>
+      <button class="home-tile disabled" disabled>
+        <div class="tile-icon">◷</div><div class="tile-label">盤後資料</div>
+      </button>
+    </section>
+  </main>
+
+  
+  <div id="analysisOverlay" class="analysis-overlay" aria-hidden="true">
+    <div class="analysis-modal" role="dialog" aria-modal="true" aria-labelledby="analysisTitle">
+      <div class="analysis-modal-head">
+        <div>
+          <div id="analysisTitle" class="analysis-title">期貨分析</div>
+          <div id="analysisSub" class="analysis-sub">讀取中…</div>
+        </div>
+        <button id="analysisClose" class="analysis-close" aria-label="關閉">✕</button>
+      </div>
+
+      <div id="analysisBody" class="analysis-body">
+        <div class="empty-state"><strong>讀取分析…</strong></div>
+      </div>
+
+      <div class="analysis-foot">
+        <span>依目前行情、3分K與趨勢雷達產生；資料不足時不硬下結論。</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+    }
+  </script>
+</section>
+<section id="futuresPage" class="page">
+  <main class="app-shell futures-shell">
+    <header class="futures-header">
+      <button id="prevContract" class="contract-arrow" aria-label="上一個期貨">◀</button>
+      <button id="contractPicker" class="contract-title" aria-label="選擇期貨商品">
+        <span id="contractName">台指近</span><small id="contractCode">TX</small>
+      </button>
+      <button id="nextContract" class="contract-arrow" aria-label="下一個期貨">▶</button>
+    </header>
+
+    <div id="contractMenu" class="contract-menu" hidden>
+      <button data-contract="TX"><strong>台指近</strong><span>TX</span></button>
+      <button data-contract="MTX"><strong>小台近</strong><span>MTX</span></button>
+      <button data-contract="TMF"><strong>微台近</strong><span>TMF</span></button>
+    </div>
+
+    <div class="page-actions">
+      <button class="back-main-btn" id="backHome">← 返回主頁</button>
+      <div class="right-actions">
+        <button id="analysisBtn" class="analysis-open-btn">📊 分析</button>
+        <button id="sessionDay" class="session-btn active">日盤</button>
+        <button id="sessionNight" class="session-btn">夜盤</button>
+        <span id="dataBadge" class="data-badge">讀取中</span>
+      </div>
+    </div>
+
+    <div class="freshness-strip">
+      <span>行情：每 5 秒更新</span>
+      <span>3分K／分析：每15秒重讀；後端採集目前約5分鐘</span>
+    </div>
+
+    <section class="quote-summary">
+      <div class="quote-left">
+        <div id="lastPrice" class="last-price">—</div>
+        <div id="changeText" class="change-text">—</div>
+      </div>
+      <div class="quote-mid">
+        <div>總：<strong id="totalQty" class="yellow">—</strong></div>
+        <div class="symbol-line"><span id="quoteSymbol">WTX&amp;</span><span>期貨</span></div>
+      </div>
+      <div class="quote-right">
+        <div class="quote-box"><span>買價</span><strong id="bidPrice">—</strong></div>
+        <div class="quote-box"><span>賣價</span><strong id="askPrice">—</strong></div>
+        <div id="quoteTime" class="quote-time">—</div>
+      </div>
+    </section>
+
+    <nav class="primary-tabs">
+      <button class="primary-tab active" data-view="detail">明細</button>
+      <button class="primary-tab" data-view="trend">走勢</button>
+      <button class="primary-tab" data-view="technical">技術</button>
+      <button class="primary-tab" data-view="institutional">法人</button>
+      <button class="primary-tab" data-view="signal">趨勢</button>
+    </nav>
+
+    <section id="view-detail" class="futures-view active">
+      <div class="honesty-note">目前資料源不是逐筆 Tick；這裡只顯示最新買／賣／成交快照，不用 3 分K 假裝逐筆。</div>
+      <div class="table-head tick-cols">
+        <span>時間</span><span>買進</span><span>賣出</span><span>成交</span><span>總量</span>
+      </div>
+      <div id="snapshotTable"></div>
+
+      <div class="detail-subtabs" aria-label="明細下方功能">
+        <button class="detail-subtab active" data-detail-panel="quote-detail">詳細</button>
+        <button class="detail-subtab" data-detail-panel="depth-detail">五檔</button>
+        <button class="detail-subtab" data-detail-panel="price-detail">分價</button>
+        <button class="detail-subtab" data-detail-panel="alert-detail">警示</button>
+      </div>
+
+      <div id="quote-detail" class="detail-bottom-panel active">
+        <div id="quoteDetailGrid" class="quote-detail-grid"></div>
+      </div>
+
+      <div id="depth-detail" class="detail-bottom-panel">
+        <div class="depth-title">
+          <span>五檔</span>
+          <small>目前只取得最佳買一／賣一；第 2～5 檔不造假</small>
+        </div>
+        <div class="depth-head depth-cols">
+          <span>買量</span><span>買價</span><span>賣價</span><span>賣量</span>
+        </div>
+        <div id="detailDepthBook" class="depth-book"></div>
+      </div>
+
+      <div id="price-detail" class="detail-bottom-panel">
+        <div class="empty-state">
+          <strong>分價資料待接線</strong>
+          <span>三竹這裡用的是逐筆／逐價成交量。目前我們只有 3 分K量，不能拿來冒充真正分價量。</span>
+        </div>
+      </div>
+
+      <div id="alert-detail" class="detail-bottom-panel">
+        <div class="empty-state">
+          <strong>警示功能待接線</strong>
+          <span>等即時成交與五檔資料源接好，再做價位、量能、突破／跌破警示。</span>
+        </div>
+      </div>
+
+      <div class="subsection-title">最近 3 分K</div>
+      <div class="table-head bar-cols">
+        <span>時間</span><span>開</span><span>高</span><span>低</span><span>收</span><span>量</span>
+      </div>
+      <div id="barsTable"></div>
+    </section>
+
+    <section id="view-trend" class="futures-view">
+      <div class="chart-meta"><span id="trendDate">—</span><span>3分K 收盤走勢</span></div>
+      <div class="chart-card"><canvas id="trendChart"></canvas></div>
+      <div class="chart-card small"><canvas id="trendVol"></canvas></div>
+
+      <div class="depth-title">
+        <span>五檔</span>
+        <small>目前先顯示最佳買一／賣一；完整五檔委託量待即時五檔資料源</small>
+      </div>
+      <div class="depth-head depth-cols">
+        <span>買量</span><span>買價</span><span>賣價</span><span>賣量</span>
+      </div>
+      <div id="depthBook" class="depth-book"></div>
+    </section>
+
+    <section id="view-technical" class="futures-view">
+      <div class="chips tech-timeframes" aria-label="K線週期">
+        <button disabled title="待接真實1分K資料">1分</button>
+        <button class="active" data-min="3">3分</button>
+        <button disabled title="待接真實1分K後提供5分K">5分</button>
+        <button data-min="15">15分</button>
+        <button data-min="30">30分</button>
+        <button data-min="60">60分</button>
+        <button disabled title="待接多日歷史K資料">日</button>
+      </div>
+      <div class="chart-meta"><span id="techDate">—</span><span id="techMode">3分K + MA5 / MA10 / MA20</span></div>
+      <div class="chart-card tall"><canvas id="kChart"></canvas></div>
+      <div id="maRow" class="indicator-row"></div>
+      <div class="chart-card small"><canvas id="techVol"></canvas></div>
+    </section>
+
+    <section id="view-institutional" class="futures-view">
+      <div class="empty-state">
+        <strong>法人資料正在接線</strong>
+        <span>目前後端還沒有三大法人「交易口數／未平倉」API，所以這頁先不塞假數字。</span>
+      </div>
+    </section>
+
+    <section id="view-signal" class="futures-view">
+      <div id="signalContent" class="signal-content">
+        <div class="empty-state"><strong>讀取趨勢雷達…</strong></div>
+      </div>
+    </section>
+  </main>
+
+  </section>
+<script>
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById(id).classList.add('active');window.scrollTo(0,0);setTimeout(()=>{if(typeof drawAllCharts==='function')drawAllCharts()},50)}
+document.addEventListener('DOMContentLoaded',()=>{document.getElementById('openFutures')?.addEventListener('click',()=>{location.hash='futures';showPage('futuresPage')});document.getElementById('backHome')?.addEventListener('click',()=>{location.hash='';showPage('homePage')});if(location.hash==='#futures')showPage('futuresPage')});
+
+const qs=(s,r=document)=>r.querySelector(s);
+const qsa=(s,r=document)=>[...r.querySelectorAll(s)];
+
+const PRODUCTS={
+  TX:{name:'台指近',code:'TX',product:'TXF_CONT',symbol:'WTX&',page:'future'},
+  MTX:{name:'小台近',code:'MTX',product:'MTX_CONT',symbol:'WMT&',page:'future'},
+  TMF:{name:'微台近',code:'TMF',product:'TMF_CONT',symbol:'WTM&',page:'quote'}
+};
+const ORDER=['TX','MTX','TMF'];
+let current='TX';
+let session='day';
+let currentBars=[];
+let techMinutes=3;
+let currentQuote=null;
+let latestThreshold=null;
+
+function fmt(v,d=2){
+  if(v===null||v===undefined||v===''||Number.isNaN(Number(v))) return '—';
+  return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:d});
+}
+function signed(v,d=2){
+  if(v===null||v===undefined||Number.isNaN(Number(v))) return '—';
+  const n=Number(v); return `${n>0?'+':''}${fmt(n,d)}`;
+}
+function colorClass(v){const n=Number(v);return n>0?'up':n<0?'down':''}
+function hhmm(ts){
+  if(ts===null||ts===undefined) return '—';
+  let n=Number(ts);
+  if(!Number.isFinite(n)) return '—';
+  if(n<1e12)n*=1000;
+  const d=new Date(n);
+  return d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',hour12:false});
+}
+function dateTime(v){
+  if(!v)return '—';
+  const d=new Date(v);
+  if(Number.isNaN(d.getTime()))return String(v);
+  return d.toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+}
+async function jsonFetch(url){
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.json();
+}
+function setBadge(text,kind=''){
+  const el=qs('#dataBadge'); el.textContent=text; el.className='data-badge';
+  if(kind)el.classList.add(kind);
+}
+function yahooUrl(meta){
+  return `https://tw.stock.yahoo.com/${meta.page}/${encodeURIComponent(meta.symbol)}`;
+}
+
+async function loadQuote(){
+  const m=PRODUCTS[current];
+  try{
+    const u=`/api/quote?url=${encodeURIComponent(yahooUrl(m))}&symbol=${encodeURIComponent(m.symbol)}`;
+    const d=await jsonFetch(u);
+    currentQuote=d;
+    const last=d.last;
+    qs('#lastPrice').textContent=fmt(last);
+    qs('#bidPrice').textContent=fmt(d.bid);
+    qs('#askPrice').textContent=fmt(d.ask);
+    qs('#totalQty').textContent=fmt(d.volume,0);
+    qs('#quoteSymbol').textContent=m.symbol;
+    const change=d.change;
+    const pct=d.change_pct;
+    const cls=colorClass(pct??change);
+    ['#lastPrice','#changeText','#bidPrice','#askPrice'].forEach(id=>{
+      qs(id).classList.remove('up','down');
+      if(cls)qs(id).classList.add(cls);
+    });
+    const arrow=Number(pct??change)>0?'▲':Number(pct??change)<0?'▼':'';
+    qs('#changeText').textContent=`${arrow} ${signed(change)} (${signed(pct)}%)`;
+    qs('#quoteTime').textContent=dateTime(d.ts_server);
+    renderSnapshot(d);
+    renderDepth(d);
+    renderDetailDepth(d);
+    renderQuoteDetails();
+    if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
+    setBadge(d.cached?'行情快取':'行情已抓取',d.cached?'warn':'ok');
+  }catch(err){
+    setBadge('行情讀取失敗','bad');
+    qs('#quoteTime').textContent='讀取失敗';
+    currentQuote=null;
+    renderSnapshot(null);
+    renderDepth(null);
+    renderDetailDepth(null);
+    renderQuoteDetails();
+    console.error(err);
+  }
+}
+function renderSnapshot(d){
+  const box=qs('#snapshotTable');
+  if(!d){
+    box.innerHTML='<div class="empty-state"><span>目前抓不到最新行情快照。</span></div>';
+    return;
+  }
+  box.innerHTML=`<div class="snapshot-row">
+    <span>${dateTime(d.ts_server).split(' ').pop()}</span>
+    <span class="${colorClass(d.change_pct)}">${fmt(d.bid)}</span>
+    <span class="${colorClass(d.change_pct)}">${fmt(d.ask)}</span>
+    <span class="${colorClass(d.change_pct)}">${fmt(d.last)}</span>
+    <span>${fmt(d.volume,0)}</span>
+  </div>`;
+}
+function renderDepth(d){
+  const box=qs('#depthBook');
+  if(!box)return;
+  const bid=d?.bid;
+  const ask=d?.ask;
+  const goodBid=bid!==null&&bid!==undefined&&Number.isFinite(Number(bid));
+  const goodAsk=ask!==null&&ask!==undefined&&Number.isFinite(Number(ask));
+
+  const rows=[];
+  rows.push(`<div class="depth-row">
+    <span class="qty">—</span>
+    <span class="bid">${goodBid?fmt(bid):'—'}</span>
+    <span class="ask">${goodAsk?fmt(ask):'—'}</span>
+    <span class="qty">—</span>
+  </div>`);
+  for(let i=0;i<4;i++){
+    rows.push(`<div class="depth-row placeholder">
+      <span class="qty">—</span><span>—</span><span>—</span><span class="qty">—</span>
+    </div>`);
+  }
+  rows.push(`<div class="depth-note">目前後端只有最佳買價／最佳賣價，沒有完整五檔價量，所以第 2～5 檔不造假。</div>`);
+  box.innerHTML=rows.join('');
+}
+function renderDetailDepth(d){
+  const box=qs('#detailDepthBook');
+  if(!box)return;
+  const bid=d?.bid;
+  const ask=d?.ask;
+  const goodBid=bid!==null&&bid!==undefined&&Number.isFinite(Number(bid));
+  const goodAsk=ask!==null&&ask!==undefined&&Number.isFinite(Number(ask));
+  const rows=[];
+  rows.push(`<div class="depth-row">
+    <span class="qty">—</span>
+    <span class="bid">${goodBid?fmt(bid):'—'}</span>
+    <span class="ask">${goodAsk?fmt(ask):'—'}</span>
+    <span class="qty">—</span>
+  </div>`);
+  for(let i=0;i<4;i++){
+    rows.push(`<div class="depth-row placeholder">
+      <span class="qty">—</span><span>—</span><span>—</span><span class="qty">—</span>
+    </div>`);
+  }
+  box.innerHTML=rows.join('');
+}
+
+function maybeNum(v){
+  const n=Number(v);
+  return Number.isFinite(n)?n:null;
+}
+function renderQuoteDetails(){
+  const box=qs('#quoteDetailGrid');
+  if(!box)return;
+  const d=currentQuote||{};
+  const high=maybeNum(d.high);
+  const low=maybeNum(d.low);
+  const ref=maybeNum(d.prev_close);
+  const amplitude=(high!==null&&low!==null&&ref)?((high-low)/ref*100):null;
+  const fields=[
+    ['成交',d.last,colorClass(d.change_pct)],
+    ['漲跌',d.change,colorClass(d.change_pct)],
+    ['幅度',d.change_pct==null?null:`${signed(d.change_pct)}%`,colorClass(d.change_pct)],
+    ['單量',null,''],
+    ['總量',d.volume,'yellow'],
+    ['振幅',amplitude==null?null:`${fmt(amplitude)}%`,'yellow'],
+    ['內盤',null,''],
+    ['外盤',null,''],
+    ['盤差',null,''],
+    ['結算',null,''],
+    ['未平',d.open_interest,'yellow'],
+    ['參考',d.prev_close,'yellow'],
+    ['最低',d.low,'down'],
+    ['最高',d.high,'up'],
+    ['開盤',d.open,colorClass(d.change_pct)]
+  ];
+  box.innerHTML=fields.map(([k,v,cls])=>{
+    const empty=v===null||v===undefined||v==='';
+    return `<div class="quote-detail-cell">
+      <span class="k">${k}</span>
+      <span class="v ${empty?'muted-val':cls||''}">${empty?'—':(typeof v==='string'&&v.includes('%')?v:fmt(v))}</span>
+    </div>`;
+  }).join('');
+}
+
+async function loadBars(){
+  const m=PRODUCTS[current];
+  try{
+    const u=`/api/blackbox/futures/3m?product=${encodeURIComponent(m.product)}&session=${session}&limit=400`;
+    const j=await jsonFetch(u);
+    currentBars=(j.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+    qs('#trendDate').textContent=`${session==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}`;
+    qs('#techDate').textContent=`${session==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}`;
+    renderBarsTable();
+    renderMA();
+    renderQuoteDetails();
+    setTimeout(drawAllCharts,30);
+  }catch(err){
+    currentBars=[];
+    renderBarsTable();
+    renderMA();
+    renderQuoteDetails();
+    setTimeout(drawAllCharts,30);
+    console.error(err);
+  }
+}
+function renderBarsTable(){
+  const box=qs('#barsTable');
+  if(!currentBars.length){
+    box.innerHTML='<div class="empty-state"><span>這個商品／盤別目前沒有 3 分K資料。</span></div>';
+    return;
+  }
+  const rows=currentBars.slice(-16).reverse();
+  box.innerHTML=rows.map(b=>`<div class="bar-row">
+    <span>${hhmm(b.ts_utc)}</span>
+    <span>${fmt(b.open)}</span>
+    <span>${fmt(b.high)}</span>
+    <span>${fmt(b.low)}</span>
+    <span>${fmt(b.close)}</span>
+    <span>${fmt(b.volume,0)}</span>
+  </div>`).join('');
+}
+function aggregate3mBars(bars, minutes){
+  if(minutes===3)return bars.slice();
+  const group=Math.floor(minutes/3);
+  if(group<1 || minutes%3!==0)return bars.slice();
+  const out=[];
+  for(let i=0;i<bars.length;i+=group){
+    const chunk=bars.slice(i,i+group);
+    if(chunk.length<group)continue;
+    const opens=chunk.map(b=>Number(b.open));
+    const highs=chunk.map(b=>Number(b.high));
+    const lows=chunk.map(b=>Number(b.low));
+    const closes=chunk.map(b=>Number(b.close));
+    const vols=chunk.map(b=>Number(b.volume||0));
+    if(!closes.every(Number.isFinite))continue;
+    out.push({
+      ts_utc:chunk[0].ts_utc,
+      open:opens[0],
+      high:Math.max(...highs.filter(Number.isFinite)),
+      low:Math.min(...lows.filter(Number.isFinite)),
+      close:closes[closes.length-1],
+      volume:vols.filter(Number.isFinite).reduce((a,b)=>a+b,0)
+    });
+  }
+  return out;
+}
+function getTechBars(){
+  return aggregate3mBars(currentBars,techMinutes);
+}
+function smaFrom(bars,n){
+  if(bars.length<n)return null;
+  const a=bars.slice(-n).map(b=>Number(b.close)).filter(Number.isFinite);
+  return a.length===n?a.reduce((x,y)=>x+y,0)/n:null;
+}
+function renderMA(){
+  const bars=getTechBars();
+  const vals=[5,10,20].map(n=>[n,smaFrom(bars,n)]);
+  qs('#maRow').innerHTML='<strong>MA</strong>'+vals.map(([n,v])=>`<span>${n}T <b>${fmt(v)}</b></span>`).join('');
+  const mode=qs('#techMode');
+  if(mode)mode.textContent=`${techMinutes}分K + MA5 / MA10 / MA20`;
+}
+
+const trendMap={
+  BIG_UP:'🟢 大漲趨勢',STRONG_UP:'🟢 明顯偏多',UP_BIAS:'🟢 偏多',
+  UP_MOVE_WEAKENING:'🟡 上漲轉弱',RANGE:'🟡 盤整',
+  DOWN_MOVE_WEAKENING:'🟡 下跌轉弱',DOWN_BIAS:'🔴 偏空',
+  STRONG_DOWN:'🔴 明顯偏空',BIG_DOWN:'🔴 大跌趨勢'
+};
+const entryMap={
+  LONG_START_3M:'🟡 3分多方啟動',LONG_START_3M_COUNTERTREND:'🟡 3分反彈但逆勢',
+  LONG_CONFIRM_6M:'🟢 6分多方確認',LONG_DECISION_9M:'🟢 9分多方決策成立',
+  SHORT_START_3M:'🟡 3分空方啟動',SHORT_START_3M_COUNTERTREND:'🟡 3分下殺但逆勢',
+  SHORT_CONFIRM_6M:'🔴 6分空方確認',SHORT_DECISION_9M:'🔴 9分空方決策成立',
+  WAIT_NO_CHASE_UP:'🟡 等待，不追高',WAIT_NO_CHASE_DOWN:'🟡 等待，不追空',
+  WAIT_TREND_WEAKENING:'🟡 趨勢轉弱，等待',WAIT_DIRECTION:'🟡 方向不夠明確，等待',
+  WAIT_DATA:'⚪ 資料不足'
+};
+
+function trendLabel(state){
+  const x=trendMap[state];
+  return x || state || '—';
+}
+function entryLabel(state){
+  const x=entryMap[state];
+  return x || state || '—';
+}
+function stageLabel(stage){
+  if(stage==='3m_start')return '3分啟動';
+  if(stage==='6m_confirm')return '6分確認';
+  if(stage==='9m_decision')return '9分決策';
+  return '等待';
+}
+function analysisReason(d){
+  const m=d.metrics||{};
+  const t=d.market_trend||{};
+  const parts=[];
+  const trend=trendLabel(d.market_trend_state);
+  parts.push(`整體判定為「${trend}」`);
+  if(Number.isFinite(Number(t.move_from_open_points))){
+    parts.push(`相對開盤 ${signed(t.move_from_open_points)} 點`);
+  }
+  if(Number.isFinite(Number(m.momentum_3m_points))){
+    parts.push(`3分動能 ${signed(m.momentum_3m_points)} 點`);
+  }
+  if(Number.isFinite(Number(m.momentum_6m_points))){
+    parts.push(`6分動能 ${signed(m.momentum_6m_points)} 點`);
+  }
+  if(Number.isFinite(Number(m.momentum_9m_points))){
+    parts.push(`9分動能 ${signed(m.momentum_9m_points)} 點`);
+  }
+  if(Number.isFinite(Number(m.volume_ratio))){
+    parts.push(`量能約 ${fmt(m.volume_ratio)} 倍`);
+  }
+  const e=d.entry_state||'';
+  if(e==='WAIT_NO_CHASE_UP')parts.push('目前不追高，等新的3分突破');
+  else if(e==='WAIT_NO_CHASE_DOWN')parts.push('目前不追空，等新的3分跌破');
+  else if(e==='LONG_START_3M')parts.push('多方剛啟動，尚待6分確認');
+  else if(e==='LONG_CONFIRM_6M')parts.push('多方已有6分確認');
+  else if(e==='LONG_DECISION_9M')parts.push('多方9分決策成立');
+  else if(e==='SHORT_START_3M')parts.push('空方剛啟動，尚待6分確認');
+  else if(e==='SHORT_CONFIRM_6M')parts.push('空方已有6分確認');
+  else if(e==='SHORT_DECISION_9M')parts.push('空方9分決策成立');
+  return parts.join('；')+'。';
+}
+function renderAnalysisModal(){
+  const body=qs('#analysisBody');
+  const sub=qs('#analysisSub');
+  const product=PRODUCTS[current]||{};
+  const sessionName=session==='day'?'日盤':'夜盤';
+  const q=currentQuote||{};
+  sub.textContent=`${product.name||''} ${sessionName} ・ 現價 ${fmt(q.last)} ・ ${latestThreshold?.trading_date||'—'}`;
+
+  if(!latestThreshold){
+    body.innerHTML='<div class="empty-state"><strong>分析資料讀取失敗</strong><span>趨勢雷達尚未取得資料。</span></div>';
+    return;
+  }
+  const d=latestThreshold.dynamic_threshold||{};
+  if(!d.ok){
+    body.innerHTML=`<div class="empty-state"><strong>目前資料不足</strong><span>${d.reason||'目前無法形成可靠判定'}</span></div>`;
+    return;
+  }
+
+  const trend=trendLabel(d.market_trend_state);
+  const entry=entryLabel(d.entry_state);
+  const m=d.metrics||{};
+  const e=d.entry_signal||{};
+  const longTrigger=e.long_trigger ?? e.long_restart_price ?? null;
+  const shortTrigger=e.short_trigger ?? e.short_restart_price ?? null;
+
+  body.innerHTML=`
+    <div class="analysis-hero">
+      <div class="label">現在動作</div>
+      <div class="decision">${entry}</div>
+      <div class="strength">訊號 ${fmt(d.entry_strength_pct)}% ｜ 整體 ${trend} ${fmt(d.market_trend_strength_pct)}%</div>
+    </div>
+
+    <div class="analysis-grid">
+      <div class="analysis-kv"><div class="k">決策階段</div><div class="v">${stageLabel(d.decision_stage)}</div></div>
+      <div class="analysis-kv"><div class="k">現價</div><div class="v">${fmt(d.price ?? q.last)}</div></div>
+      <div class="analysis-kv"><div class="k">多方觸發</div><div class="v up">${fmt(longTrigger)}</div></div>
+      <div class="analysis-kv"><div class="k">空方觸發</div><div class="v down">${fmt(shortTrigger)}</div></div>
+      <div class="analysis-kv"><div class="k">3分動能</div><div class="v">${signed(m.momentum_3m_points)}</div></div>
+      <div class="analysis-kv"><div class="k">量能倍率</div><div class="v">${fmt(m.volume_ratio)}</div></div>
+    </div>
+
+    <div class="analysis-reason"><b>為什麼：</b>${analysisReason(d)}</div>
+    <div class="analysis-warning">這個視窗會永遠浮在最上層；關閉後才回到底下行情頁。分析只吃目前實際抓到的資料，不用缺資料硬補。</div>
+  `;
+}
+function openAnalysis(){
+  renderAnalysisModal();
+  const o=qs('#analysisOverlay');
+  o.classList.add('show');
+  o.setAttribute('aria-hidden','false');
+  document.body.style.overflow='hidden';
+}
+function closeAnalysis(){
+  const o=qs('#analysisOverlay');
+  o.classList.remove('show');
+  o.setAttribute('aria-hidden','true');
+  document.body.style.overflow='';
+}
+
+async function loadThreshold(){
+  const m=PRODUCTS[current];
+  try{
+    const j=await jsonFetch(`/api/blackbox/futures/threshold?product=${encodeURIComponent(m.product)}&session=${session}`);
+    latestThreshold=j;
+    renderThreshold();
+    if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
+  }catch(err){
+    latestThreshold=null; renderThreshold();
+    if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
+    console.error(err);
+  }
+}
+function renderThreshold(){
+  const box=qs('#signalContent');
+  if(!latestThreshold){
+    box.innerHTML='<div class="empty-state"><strong>趨勢雷達讀取失敗</strong></div>';
+    return;
+  }
+  const d=latestThreshold.dynamic_threshold||{};
+  if(!d.ok){
+    box.innerHTML=`<div class="empty-state"><strong>資料不足</strong><span>${d.reason||'目前無法形成趨勢判定'}</span></div>`;
+    return;
+  }
+  const trend=trendMap[d.market_trend_state]||d.market_trend_state||'—';
+  const entry=entryMap[d.entry_state]||d.entry_state||'—';
+  const m=d.metrics||{}, e=d.entry_signal||{};
+  box.innerHTML=`
+    <div class="signal-card">
+      <div>整體趨勢</div>
+      <div class="big">${trend} ${fmt(d.market_trend_strength_pct)}%</div>
+      <div>現在動作</div>
+      <div class="big">${entry} ${fmt(d.entry_strength_pct)}%</div>
+      <div class="muted">${latestThreshold.trading_date||'—'} ・ ${session==='day'?'日盤':'夜盤'}</div>
+    </div>
+    <div class="signal-grid">
+      <div class="signal-kv"><div class="k">3分動能</div><div class="v">${signed(m.momentum_3m_points)}</div></div>
+      <div class="signal-kv"><div class="k">6分動能</div><div class="v">${signed(m.momentum_6m_points)}</div></div>
+      <div class="signal-kv"><div class="k">9分動能</div><div class="v">${signed(m.momentum_9m_points)}</div></div>
+      <div class="signal-kv"><div class="k">量能比</div><div class="v">${fmt(m.volume_ratio)}</div></div>
+      <div class="signal-kv"><div class="k">多方觸發</div><div class="v up">${fmt(e.long_trigger)}</div></div>
+      <div class="signal-kv"><div class="k">空方觸發</div><div class="v down">${fmt(e.short_trigger)}</div></div>
+    </div>`;
+}
+
+function fitCanvas(canvas){
+  const dpr=Math.max(1,window.devicePixelRatio||1);
+  const r=canvas.getBoundingClientRect();
+  canvas.width=Math.floor(r.width*dpr);canvas.height=Math.floor(r.height*dpr);
+  const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  return{ctx,w:r.width,h:r.height};
+}
+function grid(ctx,w,h){
+  ctx.strokeStyle='#223038';ctx.lineWidth=1;
+  for(let i=1;i<5;i++){ctx.beginPath();ctx.moveTo(0,h*i/5);ctx.lineTo(w,h*i/5);ctx.stroke();}
+  for(let i=1;i<6;i++){ctx.beginPath();ctx.moveTo(w*i/6,0);ctx.lineTo(w*i/6,h);ctx.stroke();}
+}
+function rangeForBars(bars=currentBars){
+  if(!bars.length)return null;
+  const highs=bars.map(b=>Number(b.high)).filter(Number.isFinite);
+  const lows=bars.map(b=>Number(b.low)).filter(Number.isFinite);
+  if(!highs.length||!lows.length)return null;
+  let min=Math.min(...lows),max=Math.max(...highs);
+  if(max===min){max+=1;min-=1}
+  const pad=(max-min)*.06;return{min:min-pad,max:max+pad};
+}
+function yMap(v,r,h){return h-(Number(v)-r.min)/(r.max-r.min)*h}
+function drawTrend(){
+  const c=qs('#trendChart');if(!c||!c.offsetParent)return;
+  const{ctx,w,h}=fitCanvas(c);grid(ctx,w,h);
+  if(!currentBars.length)return;
+  const r=rangeForBars();const bars=currentBars;
+  ctx.strokeStyle='#e2272d';ctx.lineWidth=2;ctx.beginPath();
+  bars.forEach((b,i)=>{const x=i/Math.max(1,bars.length-1)*w,y=yMap(b.close,r,h);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+}
+function drawVolume(id,bars=currentBars){
+  const c=qs(id);if(!c||!c.offsetParent)return;
+  const{ctx,w,h}=fitCanvas(c);grid(ctx,w,h);
+  if(!bars.length)return;
+  const max=Math.max(1,...bars.map(b=>Number(b.volume)||0));
+  const bw=Math.max(1,w/bars.length*.7);
+  bars.forEach((b,i)=>{
+    ctx.fillStyle=Number(b.close)>=Number(b.open)?'#e92525':'#24dc3d';
+    const v=(Number(b.volume)||0)/max;
+    ctx.fillRect(i/bars.length*w,h*(1-v),bw,h*v);
+  });
+}
+function rollingSma(bars,n,i){
+  if(i<n-1)return null;
+  let s=0;
+  for(let k=i-n+1;k<=i;k++)s+=Number(bars[k].close);
+  return s/n;
+}
+function drawK(){
+  const c=qs('#kChart');if(!c||!c.offsetParent)return;
+  const{ctx,w,h}=fitCanvas(c);grid(ctx,w,h);
+  const bars=getTechBars();
+  if(!bars.length)return;
+  const r=rangeForBars(bars),step=w/bars.length;
+  bars.forEach((b,i)=>{
+    const x=i*step+step/2,yo=yMap(b.open,r,h),yc=yMap(b.close,r,h),yh=yMap(b.high,r,h),yl=yMap(b.low,r,h);
+    const up=Number(b.close)>=Number(b.open);
+    ctx.strokeStyle=up?'#ef2727':'#24dc3d';ctx.fillStyle=ctx.strokeStyle;
+    ctx.beginPath();ctx.moveTo(x,yh);ctx.lineTo(x,yl);ctx.stroke();
+    ctx.fillRect(x-step*.28,Math.min(yo,yc),Math.max(1,step*.56),Math.max(2,Math.abs(yc-yo)));
+  });
+  const specs=[[5,'#f1d23d'],[10,'#4cc3e7'],[20,'#a855f7']];
+  specs.forEach(([n,color])=>{
+    ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.beginPath();let started=false;
+    bars.forEach((b,i)=>{const v=rollingSma(bars,n,i);if(v===null)return;const x=i*step+step/2,y=yMap(v,r,h);if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y)});
+    ctx.stroke();
+  });
+}
+function drawAllCharts(){drawTrend();drawVolume('#trendVol',currentBars);drawK();drawVolume('#techVol',getTechBars())}
+window.addEventListener('resize',()=>setTimeout(drawAllCharts,80));
+
+qsa('.detail-subtab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    qsa('.detail-subtab').forEach(b=>b.classList.remove('active'));
+    qsa('.detail-bottom-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    const panel=qs('#'+btn.dataset.detailPanel);
+    if(panel)panel.classList.add('active');
+  });
+});
+
+qsa('.tech-timeframes button[data-min]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    techMinutes=Number(btn.dataset.min)||3;
+    qsa('.tech-timeframes button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    renderMA();
+    setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
+  });
+});
+
+function applyProduct(code){
+  current=code;const m=PRODUCTS[code];
+  qs('#contractName').textContent=m.name;qs('#contractCode').textContent=m.code;qs('#quoteSymbol').textContent=m.symbol;
+  qsa('#contractMenu button').forEach(b=>b.classList.toggle('active',b.dataset.contract===code));
+  qs('#contractMenu').hidden=true;
+  refreshAll();
+}
+function setSession(s){
+  session=s;
+  qs('#sessionDay').classList.toggle('active',s==='day');
+  qs('#sessionNight').classList.toggle('active',s==='night');
+  loadBars();loadThreshold();
+}
+async function refreshAll(){
+  setBadge('讀取中');
+  await Promise.allSettled([loadQuote(),loadBars(),loadThreshold()]);
+}
+
+qs('#analysisBtn').addEventListener('click',openAnalysis);
+qs('#analysisClose').addEventListener('click',closeAnalysis);
+qs('#analysisOverlay').addEventListener('click',e=>{if(e.target===qs('#analysisOverlay'))closeAnalysis()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&qs('#analysisOverlay')?.classList.contains('show'))closeAnalysis()});
+
+qs('#prevContract').addEventListener('click',()=>{let i=ORDER.indexOf(current);applyProduct(ORDER[(i-1+ORDER.length)%ORDER.length])});
+qs('#nextContract').addEventListener('click',()=>{let i=ORDER.indexOf(current);applyProduct(ORDER[(i+1)%ORDER.length])});
+qs('#contractPicker').addEventListener('click',()=>qs('#contractMenu').hidden=!qs('#contractMenu').hidden);
+qsa('#contractMenu button').forEach(b=>b.addEventListener('click',()=>applyProduct(b.dataset.contract)));
+document.addEventListener('click',e=>{const menu=qs('#contractMenu');if(!menu.hidden&&!menu.contains(e.target)&&!qs('#contractPicker').contains(e.target))menu.hidden=true});
+qs('#sessionDay').addEventListener('click',()=>setSession('day'));
+qs('#sessionNight').addEventListener('click',()=>setSession('night'));
+
+qsa('.primary-tab').forEach(btn=>btn.addEventListener('click',()=>{
+  qsa('.primary-tab').forEach(x=>x.classList.remove('active'));
+  qsa('.futures-view').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');qs('#view-'+btn.dataset.view).classList.add('active');
+  setTimeout(drawAllCharts,50);
+}));
+
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}))}
+renderDepth(null);
+renderDetailDepth(null);
+renderQuoteDetails();
+applyProduct('TX');
+setInterval(()=>{if(!document.hidden)loadQuote()},5000);
+setInterval(()=>{
+  if(!document.hidden){
+    loadBars();
+    loadThreshold();
+  }
+},15000);
+
+</script></body></html>
