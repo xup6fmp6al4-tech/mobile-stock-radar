@@ -164,6 +164,11 @@ button{cursor:pointer}
 @media(max-width:520px){
   .freshness-strip{font-size:11px;flex-wrap:wrap;gap:3px}
 }
+.freshness-strip.closed{background:#2b1700;color:#ffd166;border-bottom-color:#8a5a00;font-weight:800}
+.freshness-strip.open{background:#08251b;color:#7ee2a8;border-bottom-color:#17643f}
+.market-state-main{font-weight:900}
+.market-state-sub{opacity:.95}
+
 
 .quote-summary{
   display:grid;
@@ -719,9 +724,9 @@ button{cursor:pointer}
       </div>
     </div>
 
-    <div class="freshness-strip">
-      <span>行情：每 5 秒更新</span>
-      <span>3分K／分析：每15秒重讀；後端採集目前約5分鐘</span>
+    <div id="marketStateStrip" class="freshness-strip">
+      <span id="marketStateMain" class="market-state-main">判斷市場狀態…</span>
+      <span id="marketStateSub" class="market-state-sub">—</span>
     </div>
 
     <section class="quote-summary">
@@ -815,9 +820,9 @@ button{cursor:pointer}
 
     <section id="view-technical" class="futures-view">
       <div class="chips tech-timeframes" aria-label="K線週期">
-        <button disabled title="待接真實1分K資料">1分</button>
+        <button data-min="1">1分</button>
         <button class="active" data-min="3">3分</button>
-        <button disabled title="待接真實1分K後提供5分K">5分</button>
+        <button data-min="5">5分</button>
         <button data-min="15">15分</button>
         <button data-min="30">30分</button>
         <button data-min="60">60分</button>
@@ -860,10 +865,61 @@ const ORDER=['TX','MTX','TMF'];
 let current='TX';
 let session='day';
 let currentBars=[];
+let current1mBars=[];
+let oneMinSourceSession='day';
+let oneMinTradingDate=null;
 let techMinutes=3;
 let currentQuote=null;
 let latestThreshold=null;
+let barsSourceSession='day';
+let thresholdSourceSession='day';
+let lastBarStamp=null;
 
+function taipeiClock(){
+  const parts=new Intl.DateTimeFormat('en-US',{
+    timeZone:'Asia/Taipei',weekday:'short',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
+  }).formatToParts(new Date());
+  const x=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+  const dow={Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[x.weekday];
+  return {dow,h:Number(x.hour),m:Number(x.minute),s:Number(x.second)};
+}
+function marketStatus(){
+  const t=taipeiClock();
+  const mins=t.h*60+t.m;
+  // 臺指期一般交易：日盤 08:45-13:45；夜盤 15:00-次日05:00。
+  // 週五夜盤可延續到週六05:00；週日全日休市。
+  if(t.dow>=1&&t.dow<=5&&mins>=525&&mins<825)return {open:true,session:'day',label:'日盤交易中'};
+  if(t.dow>=1&&t.dow<=5&&mins>=900)return {open:true,session:'night',label:'夜盤交易中'};
+  if(t.dow>=2&&t.dow<=6&&mins<300)return {open:true,session:'night',label:'夜盤交易中'};
+  return {open:false,session:null,label:'市場休息'};
+}
+function renderMarketState(){
+  const st=marketStatus();
+  const strip=qs('#marketStateStrip');
+  if(!strip)return st;
+  strip.classList.toggle('open',st.open);
+  strip.classList.toggle('closed',!st.open);
+  qs('#marketStateMain').textContent=st.open?`● ${st.label}`:'● 市場休息';
+  qs('#marketStateSub').textContent=st.open
+    ? '行情每5秒更新｜3分K/分析每15秒重讀'
+    : '保留最後有效行情；不把現在時間當成交時間；K線/分析回看最近有效盤';
+  return st;
+}
+function displayQuoteTime(d){
+  const st=marketStatus();
+  if(!st.open){
+    if(lastBarStamp!==null)return `最後3分K ${hhmm(lastBarStamp)}｜休市`;
+    return '市場休息｜最後有效行情';
+  }
+  const marketTs=d?.ts_market??d?.exchange_ts??d?.market_time??d?.trade_time??null;
+  return marketTs?dateTime(marketTs):`抓取 ${dateTime(d?.ts_server)}`;
+}
+function quoteSnapshotTime(d){
+  const st=marketStatus();
+  if(!st.open)return lastBarStamp!==null?`${hhmm(lastBarStamp)}*`:'休市';
+  const marketTs=d?.ts_market??d?.exchange_ts??d?.market_time??d?.trade_time??null;
+  return marketTs?dateTime(marketTs).split(' ').pop():'抓取';
+}
 function fmt(v,d=2){
   if(v===null||v===undefined||v===''||Number.isNaN(Number(v))) return '—';
   return Number(v).toLocaleString('zh-TW',{maximumFractionDigits:d});
@@ -921,13 +977,13 @@ async function loadQuote(){
     });
     const arrow=Number(pct??change)>0?'▲':Number(pct??change)<0?'▼':'';
     qs('#changeText').textContent=`${arrow} ${signed(change)} (${signed(pct)}%)`;
-    qs('#quoteTime').textContent=dateTime(d.ts_server);
+    qs('#quoteTime').textContent=displayQuoteTime(d);
     renderSnapshot(d);
     renderDepth(d);
     renderDetailDepth(d);
     renderQuoteDetails();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
-    setBadge(d.cached?'行情快取':'行情已抓取',d.cached?'warn':'ok');
+    { const st=renderMarketState(); setBadge(st.open?(d.cached?'行情快取':'行情已抓取'):'市場休息',st.open?(d.cached?'warn':'ok'):'warn'); }
   }catch(err){
     setBadge('行情讀取失敗','bad');
     qs('#quoteTime').textContent='讀取失敗';
@@ -946,7 +1002,7 @@ function renderSnapshot(d){
     return;
   }
   box.innerHTML=`<div class="snapshot-row">
-    <span>${dateTime(d.ts_server).split(' ').pop()}</span>
+    <span>${quoteSnapshotTime(d)}</span>
     <span class="${colorClass(d.change_pct)}">${fmt(d.bid)}</span>
     <span class="${colorClass(d.change_pct)}">${fmt(d.ask)}</span>
     <span class="${colorClass(d.change_pct)}">${fmt(d.last)}</span>
@@ -1036,24 +1092,72 @@ function renderQuoteDetails(){
   }).join('');
 }
 
+async function load1mBars(){
+  const m=PRODUCTS[current];
+  const wanted=session;
+  const st=marketStatus();
+  async function getBars(s){
+    const u=`/api/blackbox/futures/1m?product=${encodeURIComponent(m.product)}&session=${s}&limit=1000`;
+    return await jsonFetch(u);
+  }
+  try{
+    let j=await getBars(wanted);
+    let used=wanted;
+    let bars=(j.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+    if(!st.open && bars.length===0){
+      const alt=wanted==='day'?'night':'day';
+      const j2=await getBars(alt);
+      const b2=(j2.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+      if(b2.length){j=j2;bars=b2;used=alt;}
+    }
+    current1mBars=bars;
+    oneMinSourceSession=used;
+    oneMinTradingDate=j.trading_date||null;
+    renderMA();
+    setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
+  }catch(err){
+    current1mBars=[];
+    oneMinSourceSession=wanted;
+    oneMinTradingDate=null;
+    renderMA();
+    console.error('1m bars',err);
+  }
+}
+
 async function loadBars(){
   const m=PRODUCTS[current];
+  const wanted=session;
+  const st=marketStatus();
+  async function getBars(s){
+    const u=`/api/blackbox/futures/3m?product=${encodeURIComponent(m.product)}&session=${s}&limit=400`;
+    return await jsonFetch(u);
+  }
   try{
-    const u=`/api/blackbox/futures/3m?product=${encodeURIComponent(m.product)}&session=${session}&limit=400`;
-    const j=await jsonFetch(u);
-    currentBars=(j.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
-    qs('#trendDate').textContent=`${session==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}`;
-    qs('#techDate').textContent=`${session==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}`;
+    let j=await getBars(wanted);
+    let used=wanted;
+    let bars=(j.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+    // 休市時若目前盤別沒有資料，自動回看同商品另一個最近有效盤別。
+    if(!st.open && bars.length===0){
+      const alt=wanted==='day'?'night':'day';
+      const j2=await getBars(alt);
+      const b2=(j2.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+      if(b2.length){j=j2;bars=b2;used=alt;}
+    }
+    currentBars=bars;
+    barsSourceSession=used;
+    lastBarStamp=currentBars.length?currentBars[currentBars.length-1].ts_utc:null;
+    const label=`${used==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}${(!st.open&&used!==wanted)?'（休市回看）':''}`;
+    qs('#trendDate').textContent=label;
+    qs('#techDate').textContent=label;
     renderBarsTable();
     renderMA();
     renderQuoteDetails();
+    if(currentQuote)qs('#quoteTime').textContent=displayQuoteTime(currentQuote);
+    renderMarketState();
     setTimeout(drawAllCharts,30);
   }catch(err){
-    currentBars=[];
-    renderBarsTable();
-    renderMA();
-    renderQuoteDetails();
-    setTimeout(drawAllCharts,30);
+    currentBars=[];lastBarStamp=null;barsSourceSession=wanted;
+    renderBarsTable();renderMA();renderQuoteDetails();renderMarketState();setTimeout(drawAllCharts,30);
     console.error(err);
   }
 }
@@ -1073,33 +1177,56 @@ function renderBarsTable(){
     <span>${fmt(b.volume,0)}</span>
   </div>`).join('');
 }
-function aggregate3mBars(bars, minutes){
-  if(minutes===3)return bars.slice();
-  const group=Math.floor(minutes/3);
-  if(group<1 || minutes%3!==0)return bars.slice();
+function aggregateBarsByIndex(bars, minutes, baseMinutes=1){
+  if(!bars.length)return [];
+  if(minutes===baseMinutes)return bars.slice();
+  const group=minutes/baseMinutes;
+  if(group<1 || !Number.isInteger(group))return [];
+  const buckets=new Map();
+  for(const b of bars){
+    const idx=Number(b.bar_index);
+    if(!Number.isFinite(idx))continue;
+    const key=Math.floor(idx/group);
+    if(!buckets.has(key))buckets.set(key,[]);
+    buckets.get(key).push(b);
+  }
   const out=[];
-  for(let i=0;i<bars.length;i+=group){
-    const chunk=bars.slice(i,i+group);
-    if(chunk.length<group)continue;
+  for(const [key,chunk0] of [...buckets.entries()].sort((a,b)=>a[0]-b[0])){
+    const chunk=chunk0.slice().sort((a,b)=>Number(a.bar_index)-Number(b.bar_index));
+    if(!chunk.length)continue;
     const opens=chunk.map(b=>Number(b.open));
-    const highs=chunk.map(b=>Number(b.high));
-    const lows=chunk.map(b=>Number(b.low));
+    const highs=chunk.map(b=>Number(b.high)).filter(Number.isFinite);
+    const lows=chunk.map(b=>Number(b.low)).filter(Number.isFinite);
     const closes=chunk.map(b=>Number(b.close));
-    const vols=chunk.map(b=>Number(b.volume||0));
-    if(!closes.every(Number.isFinite))continue;
+    const vols=chunk.map(b=>Number(b.volume||0)).filter(Number.isFinite);
+    if(!closes.every(Number.isFinite)||!highs.length||!lows.length)continue;
     out.push({
+      bar_index:key,
       ts_utc:chunk[0].ts_utc,
       open:opens[0],
-      high:Math.max(...highs.filter(Number.isFinite)),
-      low:Math.min(...lows.filter(Number.isFinite)),
+      high:Math.max(...highs),
+      low:Math.min(...lows),
       close:closes[closes.length-1],
-      volume:vols.filter(Number.isFinite).reduce((a,b)=>a+b,0)
+      volume:vols.reduce((a,b)=>a+b,0)
     });
   }
   return out;
 }
+function aggregate3mBars(bars, minutes){
+  return aggregateBarsByIndex(bars,minutes,3);
+}
 function getTechBars(){
+  if(techMinutes===1)return current1mBars.slice();
+  if(techMinutes===3)return currentBars.slice();
+  if(current1mBars.length)return aggregateBarsByIndex(current1mBars,techMinutes,1);
   return aggregate3mBars(currentBars,techMinutes);
+}
+function updateTechSourceLabel(){
+  const is1mBased=techMinutes!==3 && current1mBars.length;
+  const used=is1mBased?oneMinSourceSession:barsSourceSession;
+  const date=is1mBased?oneMinTradingDate:(qs('#trendDate')?.textContent||'').replace(/^.*? /,'').replace('（休市回看）','');
+  const st=marketStatus();
+  if(qs('#techDate'))qs('#techDate').textContent=`${used==='day'?'日盤':'夜盤'} ${date||'—'}${!st.open?'（休市回看）':''}`;
 }
 function smaFrom(bars,n){
   if(bars.length<n)return null;
@@ -1112,6 +1239,7 @@ function renderMA(){
   qs('#maRow').innerHTML='<strong>MA</strong>'+vals.map(([n,v])=>`<span>${n}T <b>${fmt(v)}</b></span>`).join('');
   const mode=qs('#techMode');
   if(mode)mode.textContent=`${techMinutes}分K + MA5 / MA10 / MA20`;
+  updateTechSourceLabel();
 }
 
 const trendMap={
@@ -1180,9 +1308,9 @@ function renderAnalysisModal(){
   const body=qs('#analysisBody');
   const sub=qs('#analysisSub');
   const product=PRODUCTS[current]||{};
-  const sessionName=session==='day'?'日盤':'夜盤';
+  const sessionName=thresholdSourceSession==='day'?'日盤':'夜盤';
   const q=currentQuote||{};
-  sub.textContent=`${product.name||''} ${sessionName} ・ 現價 ${fmt(q.last)} ・ ${latestThreshold?.trading_date||'—'}`;
+  sub.textContent=`${product.name||''} ${sessionName}${!marketStatus().open?'（市場休息／回看）':''} ・ 現價 ${fmt(q.last)} ・ ${latestThreshold?.trading_date||'—'}`;
 
   if(!latestThreshold){
     body.innerHTML='<div class="empty-state"><strong>分析資料讀取失敗</strong><span>趨勢雷達尚未取得資料。</span></div>';
@@ -1190,7 +1318,7 @@ function renderAnalysisModal(){
   }
   const d=latestThreshold.dynamic_threshold||{};
   if(!d.ok){
-    body.innerHTML=`<div class="empty-state"><strong>目前資料不足</strong><span>${d.reason||'目前無法形成可靠判定'}</span></div>`;
+    body.innerHTML=`<div class="empty-state"><strong>${marketStatus().open?'目前資料不足':'市場休息'}</strong><span>${marketStatus().open?(d.reason||'目前無法形成可靠判定'):'最近有效盤仍不足10根3分K，暫不硬算分析。'}</span></div>`;
     return;
   }
 
@@ -1237,13 +1365,27 @@ function closeAnalysis(){
 
 async function loadThreshold(){
   const m=PRODUCTS[current];
+  const wanted=session;
+  const st=marketStatus();
+  async function getThreshold(s){
+    return await jsonFetch(`/api/blackbox/futures/threshold?product=${encodeURIComponent(m.product)}&session=${s}`);
+  }
   try{
-    const j=await jsonFetch(`/api/blackbox/futures/threshold?product=${encodeURIComponent(m.product)}&session=${session}`);
+    let j=await getThreshold(wanted);
+    let used=wanted;
+    let ok=!!j?.dynamic_threshold?.ok;
+    // 休市時目前盤別資料不足，就回看同商品另一個最近有效盤別。
+    if(!st.open && !ok){
+      const alt=wanted==='day'?'night':'day';
+      const j2=await getThreshold(alt);
+      if(j2?.dynamic_threshold?.ok){j=j2;used=alt;ok=true;}
+    }
     latestThreshold=j;
+    thresholdSourceSession=used;
     renderThreshold();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
   }catch(err){
-    latestThreshold=null; renderThreshold();
+    latestThreshold=null;thresholdSourceSession=wanted;renderThreshold();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
     console.error(err);
   }
@@ -1256,7 +1398,7 @@ function renderThreshold(){
   }
   const d=latestThreshold.dynamic_threshold||{};
   if(!d.ok){
-    box.innerHTML=`<div class="empty-state"><strong>資料不足</strong><span>${d.reason||'目前無法形成趨勢判定'}</span></div>`;
+    box.innerHTML=`<div class="empty-state"><strong>${marketStatus().open?'資料不足':'市場休息'}</strong><span>${marketStatus().open?(d.reason||'目前無法形成趨勢判定'):'已停止把休市時間當即時盤；最近有效盤資料不足時不硬算。'}</span></div>`;
     return;
   }
   const trend=trendMap[d.market_trend_state]||d.market_trend_state||'—';
@@ -1268,7 +1410,7 @@ function renderThreshold(){
       <div class="big">${trend} ${fmt(d.market_trend_strength_pct)}%</div>
       <div>現在動作</div>
       <div class="big">${entry} ${fmt(d.entry_strength_pct)}%</div>
-      <div class="muted">${latestThreshold.trading_date||'—'} ・ ${session==='day'?'日盤':'夜盤'}</div>
+      <div class="muted">${latestThreshold.trading_date||'—'} ・ ${thresholdSourceSession==='day'?'日盤':'夜盤'}${!marketStatus().open?'（休市回看）':''}</div>
     </div>
     <div class="signal-grid">
       <div class="signal-kv"><div class="k">3分動能</div><div class="v">${signed(m.momentum_3m_points)}</div></div>
@@ -1382,11 +1524,11 @@ function setSession(s){
   session=s;
   qs('#sessionDay').classList.toggle('active',s==='day');
   qs('#sessionNight').classList.toggle('active',s==='night');
-  loadBars();loadThreshold();
+  loadBars();load1mBars();loadThreshold();
 }
 async function refreshAll(){
   setBadge('讀取中');
-  await Promise.allSettled([loadQuote(),loadBars(),loadThreshold()]);
+  await Promise.allSettled([loadQuote(),loadBars(),load1mBars(),loadThreshold()]);
 }
 
 qs('#analysisBtn').addEventListener('click',openAnalysis);
@@ -1413,11 +1555,13 @@ if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.se
 renderDepth(null);
 renderDetailDepth(null);
 renderQuoteDetails();
+renderMarketState();
 applyProduct('TX');
-setInterval(()=>{if(!document.hidden)loadQuote()},5000);
+setInterval(()=>{renderMarketState();if(!document.hidden)loadQuote()},5000);
 setInterval(()=>{
   if(!document.hidden){
     loadBars();
+    load1mBars();
     loadThreshold();
   }
 },15000);
