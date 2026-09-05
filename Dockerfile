@@ -11,4 +11,4 @@ ENV PYTHONUNBUFFERED=1 \
     YAHOO_HTTP_TIMEOUT=15
 
 EXPOSE 10000
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn server_taifex:app --host 0.0.0.0 --port ${PORT}"]
