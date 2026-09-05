@@ -449,6 +449,28 @@ button{cursor:pointer}
   .metric-grid strong{font-size:16px}
 }
 
+
+.analysis-trigger{cursor:pointer;position:relative;transition:background .12s ease,box-shadow .12s ease}
+.analysis-trigger:active{background:#12191c;box-shadow:inset 0 0 0 2px rgba(255,45,45,.35)}
+.analysis-trigger:focus-visible{outline:2px solid #f0b429;outline-offset:-2px}
+.mitake-trend{background:#050809;padding-bottom:12px}
+.mitake-periods{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;padding:10px 8px;background:#0d1214;border-bottom:1px solid #26343a}
+.mitake-period{display:flex;flex-direction:column;gap:5px;align-items:center;min-width:0}
+.mitake-period .tf{font-size:13px;color:#b8c0c4}
+.mitake-period .state{width:100%;padding:7px 2px;border-radius:4px;text-align:center;font-size:13px;font-weight:900;white-space:nowrap}
+.mitake-period .state.up{background:#8b0505;color:#fff}
+.mitake-period .state.down{background:#075f19;color:#fff}
+.mitake-period .state.flat{background:#4b5563;color:#fff}
+.mitake-block{margin-top:10px;border-top:1px solid #26343a;border-bottom:1px solid #26343a;background:#090d0f}
+.mitake-block-head{display:flex;align-items:center;justify-content:space-between;padding:11px 12px;background:#0d171b;font-size:18px}
+.mitake-block-head strong{padding:5px 18px;background:#6d0505;color:#fff;min-width:110px;text-align:center}
+.mitake-ma-grid,.mitake-tech-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px}
+.mitake-cell{min-height:78px;border:1px solid #6d2b1c;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:7px}
+.mitake-cell .k{color:#aab2b7;font-size:14px}
+.mitake-cell .v{font-size:18px;font-weight:900;margin-top:5px}
+.mitake-cell .s{font-size:14px;font-weight:900;margin-top:3px}
+.trend-note{margin:10px 8px 0;padding:10px 12px;border:1px solid #28404a;background:#0b1418;color:#9fd8ef;font-size:12px;line-height:1.5}
+
 .right-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
 .analysis-open-btn{
@@ -672,25 +694,6 @@ button{cursor:pointer}
   </main>
 
   
-  <div id="analysisOverlay" class="analysis-overlay" aria-hidden="true">
-    <div class="analysis-modal" role="dialog" aria-modal="true" aria-labelledby="analysisTitle">
-      <div class="analysis-modal-head">
-        <div>
-          <div id="analysisTitle" class="analysis-title">期貨分析</div>
-          <div id="analysisSub" class="analysis-sub">讀取中…</div>
-        </div>
-        <button id="analysisClose" class="analysis-close" aria-label="關閉">✕</button>
-      </div>
-
-      <div id="analysisBody" class="analysis-body">
-        <div class="empty-state"><strong>讀取分析…</strong></div>
-      </div>
-
-      <div class="analysis-foot">
-        <span>依目前行情、3分K與趨勢雷達產生；資料不足時不硬下結論。</span>
-      </div>
-    </div>
-  </div>
 
 <script>
     if ('serviceWorker' in navigator) {
@@ -729,7 +732,7 @@ button{cursor:pointer}
       <span id="marketStateSub" class="market-state-sub">—</span>
     </div>
 
-    <section class="quote-summary">
+    <section id="quoteAnalysisTrigger" class="quote-summary analysis-trigger" role="button" tabindex="0" aria-label="開啟期貨分析">
       <div class="quote-left">
         <div id="lastPrice" class="last-price">—</div>
         <div id="changeText" class="change-text">—</div>
@@ -842,13 +845,47 @@ button{cursor:pointer}
     </section>
 
     <section id="view-signal" class="futures-view">
-      <div id="signalContent" class="signal-content">
-        <div class="empty-state"><strong>讀取趨勢雷達…</strong></div>
+      <div class="mitake-trend">
+        <div class="mitake-periods" id="trendPeriods"></div>
+
+        <div class="mitake-block">
+          <div class="mitake-block-head"><span>移動平均線</span><strong id="trendMaOverall">—</strong></div>
+          <div id="trendMaGrid" class="mitake-ma-grid"></div>
+        </div>
+
+        <div class="mitake-block">
+          <div class="mitake-block-head"><span>技術狀態</span><strong id="trendTechOverall">—</strong></div>
+          <div id="trendTechGrid" class="mitake-tech-grid"></div>
+        </div>
+
+        <div class="trend-note">此頁只顯示各週期技術強弱；「目前趨勢／現在動作／3・6・9分動能／量能比／多空觸發」請點上方行情區開啟分析浮窗。</div>
       </div>
     </section>
   </main>
 
   </section>
+
+  <div id="analysisOverlay" class="analysis-overlay" aria-hidden="true">
+    <div class="analysis-modal" role="dialog" aria-modal="true" aria-labelledby="analysisTitle">
+      <div class="analysis-modal-head">
+        <div>
+          <div id="analysisTitle" class="analysis-title">期貨分析</div>
+          <div id="analysisSub" class="analysis-sub">讀取中…</div>
+        </div>
+        <button id="analysisClose" class="analysis-close" aria-label="關閉">✕</button>
+      </div>
+
+      <div id="analysisBody" class="analysis-body">
+        <div class="empty-state"><strong>讀取分析…</strong></div>
+      </div>
+
+      <div class="analysis-foot">
+        <span>依目前行情、3分K與趨勢雷達產生；資料不足時不硬下結論。</span>
+      </div>
+    </div>
+  </div>
+
+
 <script>
 function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById(id).classList.add('active');window.scrollTo(0,0);setTimeout(()=>{if(typeof drawAllCharts==='function')drawAllCharts()},50)}
 document.addEventListener('DOMContentLoaded',()=>{document.getElementById('openFutures')?.addEventListener('click',()=>{location.hash='futures';showPage('futuresPage')});document.getElementById('backHome')?.addEventListener('click',()=>{location.hash='';showPage('homePage')});if(location.hash==='#futures')showPage('futuresPage')});
@@ -1114,6 +1151,7 @@ async function load1mBars(){
     oneMinSourceSession=used;
     oneMinTradingDate=j.trading_date||null;
     renderMA();
+    renderThreshold();
     setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
   }catch(err){
     current1mBars=[];
@@ -1151,6 +1189,7 @@ async function loadBars(){
     qs('#techDate').textContent=label;
     renderBarsTable();
     renderMA();
+    renderThreshold();
     renderQuoteDetails();
     if(currentQuote)qs('#quoteTime').textContent=displayQuoteTime(currentQuote);
     renderMarketState();
@@ -1277,7 +1316,10 @@ function analysisReason(d){
   const t=d.market_trend||{};
   const parts=[];
   const trend=trendLabel(d.market_trend_state);
-  parts.push(`整體判定為「${trend}」`);
+  parts.push(`目前趨勢判定為「${trend}」`);
+  if(d.session_trend_state && d.session_trend_state!==d.market_trend_state){
+    parts.push(`盤勢背景為「${trendLabel(d.session_trend_state)}」`);
+  }
   if(Number.isFinite(Number(t.move_from_open_points))){
     parts.push(`相對開盤 ${signed(t.move_from_open_points)} 點`);
   }
@@ -1333,7 +1375,8 @@ function renderAnalysisModal(){
     <div class="analysis-hero">
       <div class="label">現在動作</div>
       <div class="decision">${entry}</div>
-      <div class="strength">訊號 ${fmt(d.entry_strength_pct)}% ｜ 整體 ${trend} ${fmt(d.market_trend_strength_pct)}%</div>
+      <div class="strength">訊號 ${fmt(d.entry_strength_pct)}% ｜ 目前 ${trend} ${fmt(d.market_trend_strength_pct)}%</div>
+      ${d.session_trend_state&&d.session_trend_state!==d.market_trend_state?`<div class="muted">盤勢背景：${trendLabel(d.session_trend_state)} ${fmt(d.session_trend_strength_pct)}%</div>`:''}
     </div>
 
     <div class="analysis-grid">
@@ -1342,6 +1385,8 @@ function renderAnalysisModal(){
       <div class="analysis-kv"><div class="k">多方觸發</div><div class="v up">${fmt(longTrigger)}</div></div>
       <div class="analysis-kv"><div class="k">空方觸發</div><div class="v down">${fmt(shortTrigger)}</div></div>
       <div class="analysis-kv"><div class="k">3分動能</div><div class="v">${signed(m.momentum_3m_points)}</div></div>
+      <div class="analysis-kv"><div class="k">6分動能</div><div class="v">${signed(m.momentum_6m_points)}</div></div>
+      <div class="analysis-kv"><div class="k">9分動能</div><div class="v">${signed(m.momentum_9m_points)}</div></div>
       <div class="analysis-kv"><div class="k">量能倍率</div><div class="v">${fmt(m.volume_ratio)}</div></div>
     </div>
 
@@ -1390,36 +1435,77 @@ async function loadThreshold(){
     console.error(err);
   }
 }
+function classifyTrendBars(bars){
+  const good=(bars||[]).filter(b=>Number.isFinite(Number(b.close)));
+  if(good.length<3)return {label:'—',dir:'flat',score:0,change:null,last:null,ma5:null,ma10:null,ma20:null};
+  const closes=good.map(b=>Number(b.close));
+  const last=closes[closes.length-1];
+  const prev=closes[Math.max(0,closes.length-4)];
+  const avg=n=>closes.length>=n?closes.slice(-n).reduce((a,b)=>a+b,0)/n:null;
+  const ma5=avg(5),ma10=avg(10),ma20=avg(20);
+  let score=0;
+  const add=(cond)=>{score+=cond?1:-1};
+  add(last>=prev);
+  if(ma5!==null)add(last>=ma5);
+  if(ma10!==null)add(last>=ma10);
+  if(ma20!==null)add(last>=ma20);
+  if(ma5!==null&&ma10!==null)add(ma5>=ma10);
+  let label='盤整',dir='flat';
+  if(score>=4){label='強';dir='up'}
+  else if(score>=1){label='微強';dir='up'}
+  else if(score<=-4){label='弱';dir='down'}
+  else if(score<=-1){label='微弱';dir='down'}
+  const change=prev?((last/prev)-1)*100:null;
+  return {label,dir,score,change,last,ma5,ma10,ma20};
+}
+function trendBarsFor(minutes){
+  if(minutes===1)return current1mBars.slice();
+  if(minutes===3)return currentBars.slice();
+  if(current1mBars.length)return aggregateBarsByIndex(current1mBars,minutes,1);
+  return aggregate3mBars(currentBars,minutes);
+}
 function renderThreshold(){
-  const box=qs('#signalContent');
-  if(!latestThreshold){
-    box.innerHTML='<div class="empty-state"><strong>趨勢雷達讀取失敗</strong></div>';
-    return;
-  }
-  const d=latestThreshold.dynamic_threshold||{};
-  if(!d.ok){
-    box.innerHTML=`<div class="empty-state"><strong>${marketStatus().open?'資料不足':'市場休息'}</strong><span>${marketStatus().open?(d.reason||'目前無法形成趨勢判定'):'已停止把休市時間當即時盤；最近有效盤資料不足時不硬算。'}</span></div>`;
-    return;
-  }
-  const trend=trendMap[d.market_trend_state]||d.market_trend_state||'—';
-  const entry=entryMap[d.entry_state]||d.entry_state||'—';
-  const m=d.metrics||{}, e=d.entry_signal||{};
-  box.innerHTML=`
-    <div class="signal-card">
-      <div>整體趨勢</div>
-      <div class="big">${trend} ${fmt(d.market_trend_strength_pct)}%</div>
-      <div>現在動作</div>
-      <div class="big">${entry} ${fmt(d.entry_strength_pct)}%</div>
-      <div class="muted">${latestThreshold.trading_date||'—'} ・ ${thresholdSourceSession==='day'?'日盤':'夜盤'}${!marketStatus().open?'（休市回看）':''}</div>
-    </div>
-    <div class="signal-grid">
-      <div class="signal-kv"><div class="k">3分動能</div><div class="v">${signed(m.momentum_3m_points)}</div></div>
-      <div class="signal-kv"><div class="k">6分動能</div><div class="v">${signed(m.momentum_6m_points)}</div></div>
-      <div class="signal-kv"><div class="k">9分動能</div><div class="v">${signed(m.momentum_9m_points)}</div></div>
-      <div class="signal-kv"><div class="k">量能比</div><div class="v">${fmt(m.volume_ratio)}</div></div>
-      <div class="signal-kv"><div class="k">多方觸發</div><div class="v up">${fmt(e.long_trigger)}</div></div>
-      <div class="signal-kv"><div class="k">空方觸發</div><div class="v down">${fmt(e.short_trigger)}</div></div>
-    </div>`;
+  const periodBox=qs('#trendPeriods');
+  const maGrid=qs('#trendMaGrid');
+  const techGrid=qs('#trendTechGrid');
+  if(!periodBox||!maGrid||!techGrid)return;
+
+  const periods=[1,3,5,15,30,60];
+  const states=periods.map(min=>[min,classifyTrendBars(trendBarsFor(min))]);
+  periodBox.innerHTML=states.map(([min,st])=>`<div class="mitake-period"><div class="tf">${min}分</div><div class="state ${st.dir}">${st.label}</div></div>`).join('');
+
+  const base=classifyTrendBars(trendBarsFor(3));
+  const mas=[['MA5',base.ma5],['MA10',base.ma10],['MA20',base.ma20]];
+  const bull=mas.filter(([,v])=>v!==null&&base.last!==null&&base.last>=v).length;
+  const bear=mas.filter(([,v])=>v!==null&&base.last!==null&&base.last<v).length;
+  const overall=bull>bear?'強':bear>bull?'弱':'盤整';
+  qs('#trendMaOverall').textContent=`${overall}　強(${bull})　弱(${bear})`;
+  qs('#trendMaOverall').style.background=bull>bear?'#7b0000':bear>bull?'#075f19':'#4b5563';
+  maGrid.innerHTML=mas.map(([k,v])=>{
+    const up=v!==null&&base.last!==null&&base.last>=v;
+    return `<div class="mitake-cell"><div class="k">${k}</div><div class="v">${fmt(v)}</div><div class="s ${v===null?'':up?'up':'down'}">${v===null?'—':up?'偏多':'偏空'}</div></div>`;
+  }).join('');
+
+  const d=latestThreshold?.dynamic_threshold||{};
+  const m=d.metrics||{};
+  const tech=[
+    ['3分變化',states.find(x=>x[0]===3)?.[1]?.change],
+    ['量能比',Number.isFinite(Number(m.volume_ratio))?Number(m.volume_ratio):null],
+    ['VWAP',Number.isFinite(Number(d.vwap))?Number(d.vwap):null]
+  ];
+  const upCount=states.filter(([,st])=>st.dir==='up').length;
+  const downCount=states.filter(([,st])=>st.dir==='down').length;
+  const techOverall=upCount>downCount?'偏多':downCount>upCount?'偏空':'盤整';
+  qs('#trendTechOverall').textContent=`${techOverall}　多(${upCount})　空(${downCount})`;
+  qs('#trendTechOverall').style.background=upCount>downCount?'#7b0000':downCount>upCount?'#075f19':'#4b5563';
+  techGrid.innerHTML=tech.map(([k,v],i)=>{
+    let out='—',cls='';
+    if(v!==null&&v!==undefined&&Number.isFinite(Number(v))){
+      out=i===0?`${signed(v)}%`:fmt(v);
+      if(i===0)cls=Number(v)>0?'up':Number(v)<0?'down':'';
+    }
+    return `<div class="mitake-cell"><div class="k">${k}</div><div class="v ${cls}">${out}</div></div>`;
+  }).join('');
 }
 
 function fitCanvas(canvas){
@@ -1532,6 +1618,8 @@ async function refreshAll(){
 }
 
 qs('#analysisBtn').addEventListener('click',openAnalysis);
+qs('#quoteAnalysisTrigger').addEventListener('click',openAnalysis);
+qs('#quoteAnalysisTrigger').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openAnalysis();}});
 qs('#analysisClose').addEventListener('click',closeAnalysis);
 qs('#analysisOverlay').addEventListener('click',e=>{if(e.target===qs('#analysisOverlay'))closeAnalysis()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&qs('#analysisOverlay')?.classList.contains('show'))closeAnalysis()});
