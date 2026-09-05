@@ -24,6 +24,9 @@
     .decision{font-size:23px;font-weight:900;margin:10px 0 4px}.trend{font-size:15px;font-weight:800;margin-top:6px}.trigger-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
     .trigger{background:#0f172a;border-radius:12px;padding:10px}.trigger .n{font-size:23px;font-weight:900;margin-top:4px}.stage{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
     .pill{font-size:12px;border:1px solid #334155;border-radius:999px;padding:5px 9px;color:#cbd5e1}.pill.active{border-color:#94a3b8;color:#fff;font-weight:800}
+    .product-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 12px}
+    .product-btn{padding:10px 8px;font-size:14px;background:#0f172a;border:1px solid #334155}
+    .product-btn.active{background:#2563eb;border-color:#2563eb}
     .detail-btn{margin-top:12px;background:#0f172a;border:1px solid #334155}
     .analysis-only{margin-top:10px;font-size:12px;color:#fbbf24}
     .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);display:none;align-items:flex-start;justify-content:center;padding:22px 14px;z-index:9999;overflow:auto}
@@ -49,7 +52,7 @@
 </head>
 <body>
   <h1>📈 手機股票雷達 <span class="badge">3分K主決策</span></h1>
-  <div class="sub">原始雷達數據留在後台。App 只顯示方向、現在動作、訊號%、觸發價；點「查看詳情」才展開原因與補充說明。</div>
+  <div class="sub">台指 TX、小台 MTX、微台 TMF 各自使用自己的3分K與價格，不混用。App 只顯示方向、現在動作、訊號%、觸發價；點「查看詳情」才展開原因。</div>
 
   <div class="row">
     <button id="refreshBtn" class="primary" onclick="loadEverything()">更新全部</button>
@@ -58,6 +61,11 @@
   </div>
 
   <h2>期貨決策雷達</h2>
+  <div class="product-tabs">
+    <button id="tab-TMF_CONT" class="product-btn active" onclick="selectProduct('TMF_CONT')">微台 TMF</button>
+    <button id="tab-MTX_CONT" class="product-btn" onclick="selectProduct('MTX_CONT')">小台 MTX</button>
+    <button id="tab-TXF_CONT" class="product-btn" onclick="selectProduct('TXF_CONT')">台指 TX</button>
+  </div>
   <div id="futuresRadar"><div class="muted">準備讀取期貨雷達…</div></div>
 
   <h2>行情觀察</h2>
@@ -87,6 +95,12 @@
 
 <script>
 let deferredPrompt;let autoTimer=null;
+const PRODUCTS={
+  TMF_CONT:{label:'微型臺指 TMF（微台）',short:'微台 TMF',symbol:'WTM&'},
+  MTX_CONT:{label:'小型台指 MTX（小台）',short:'小台 MTX',symbol:'WMT&'},
+  TXF_CONT:{label:'台指期 TX（大台）',short:'台指 TX',symbol:'WTX&'}
+};
+let selectedProduct='TMF_CONT';
 let latestRadarCache={};
 const cards=document.getElementById('cards');const futuresRadar=document.getElementById('futuresRadar');const refreshBtn=document.getElementById('refreshBtn');
 
@@ -100,7 +114,7 @@ function cell(label,value){return`<div class="cell"><div class="label">${label}<
 
 function card(sym,d){
   if(d.ok===false)return`<div class="card"><div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div></div><div class="status error">⚠️ ${d.error||'抓取失敗'}</div></div>`;
-  const cls=clsFor(d.change_pct);const pct=d.change_pct==null?'':`${d.change_pct>0?'+':''}${fmt(d.change_pct)}%`;const isFuture=(d.kind==='future'||sym==='WTX&');
+  const cls=clsFor(d.change_pct);const pct=d.change_pct==null?'':`${d.change_pct>0?'+':''}${fmt(d.change_pct)}%`;const isFuture=(d.kind==='future'||['WTX&','WMT&','WTM&'].includes(sym));
   const extra=isFuture?`${cell('買價',d.bid)}${cell('賣價',d.ask)}${cell('未平倉',d.open_interest)}`:`${cell('昨收',d.prev_close)}${cell('總量',d.volume)}${cell('漲跌',d.change)}`;
   const when=d.ts_server?new Date(d.ts_server).toLocaleString('zh-TW'):'—';
   return`<div class="card"><div class="title"><div><div class="name">${d.name||sym}</div><div class="sym">${sym}</div></div><div class="pct ${cls}">${pct}</div></div><div class="price ${cls}">${fmt(d.last)}</div><div class="grid">${cell('開盤',d.open)}${cell('最高',d.high)}${cell('最低',d.low)}${extra}</div><div class="status">更新：${when}${d.cached?'（快取）':''}</div></div>`;
@@ -135,14 +149,28 @@ function reasonText(d){
   return bits.join('；')+'。';
 }
 
-function radarCard(session,j){
-  const d=j.dynamic_threshold||{};const sessionName=session==='day'?'日盤':'夜盤';
-  latestRadarCache[session]=j;
-  if(!d.ok)return`<div class="radar-card"><div class="name">${sessionName}</div><div class="status error">⚠️ ${d.reason||'資料不足'}</div></div>`;
-  const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];const entry=entryMap[d.entry_state]||d.entry_state||'—';const es=d.entry_strength_pct??'—';const ts=d.market_trend_strength_pct??'—';const en=d.entry_signal||{};
+function radarCard(product,session,j){
+  const d=j.dynamic_threshold||{};
+  const sessionName=session==='day'?'日盤':'夜盤';
+  const meta=PRODUCTS[product]||{label:product,short:product,symbol:''};
+  latestRadarCache[`${product}|${session}`]=j;
+
+  if(!d.ok){
+    const extra=(j.count||0)===0
+      ? `尚未建立 ${meta.short} 的3分K資料。請先執行一次 radar-blackbox-capture。`
+      : (d.reason||'資料不足');
+    return `<div class="radar-card"><div class="title"><div><div class="name">${meta.label} ${sessionName}</div><div class="sym">${meta.symbol} ・ ${j.trading_date||'—'}</div></div></div><div class="status error">⚠️ ${extra}</div></div>`;
+  }
+
+  const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];
+  const entry=entryMap[d.entry_state]||d.entry_state||'—';
+  const es=d.entry_strength_pct??'—';
+  const ts=d.market_trend_strength_pct??'—';
+  const en=d.entry_signal||{};
   const stage=stageText(d.decision_stage);
-  return`<div class="radar-card clickable-card">
-    <div class="title"><div><div class="name">微臺／台指期 ${sessionName}</div><div class="sym">${j.trading_date||'—'} ・ 3分K決策</div></div><div class="pct">${fmt(d.price)}</div></div>
+
+  return `<div class="radar-card clickable-card">
+    <div class="title"><div><div class="name">${meta.label} ${sessionName}</div><div class="sym">${meta.symbol} ・ ${j.trading_date||'—'} ・ 3分K決策</div></div><div class="pct">${fmt(d.price)}</div></div>
     <div class="trend ${tr[1]}">整體：${tr[0]} ${ts}%</div>
     <div class="decision">${entry} ${es}%</div>
     <div class="trigger-grid">
@@ -150,20 +178,30 @@ function radarCard(session,j){
       <div class="trigger"><div class="label">🔴 空方重新啟動</div><div class="n down">${fmt(en.next_short_trigger_level)}</div></div>
     </div>
     <div class="stage"><span class="pill ${stage==='3分啟動'?'active':''}">3分啟動</span><span class="pill ${stage==='6分確認'?'active':''}">6分確認</span><span class="pill ${stage==='9分決策'?'active':''}">9分決策</span><span class="pill ${stage==='等待'?'active':''}">等待</span></div>
-    <button class="detail-btn" onclick="openDetailModal('${session}'); event.stopPropagation();">查看詳情</button>
+    <button class="detail-btn" onclick="openDetailModal('${product}','${session}'); event.stopPropagation();">查看詳情</button>
   </div>`;
 }
 
-function openDetailModal(session){
-  const j=latestRadarCache[session];
+function selectProduct(product){
+  selectedProduct=product;
+  Object.keys(PRODUCTS).forEach(p=>{
+    const el=document.getElementById(`tab-${p}`);
+    if(el)el.classList.toggle('active',p===product);
+  });
+  loadFuturesRadar();
+}
+
+function openDetailModal(product,session){
+  const j=latestRadarCache[`${product}|${session}`];
   if(!j)return;
   const d=j.dynamic_threshold||{};
   const sessionName=session==='day'?'日盤':'夜盤';
+  const meta=PRODUCTS[product]||{label:product,short:product,symbol:''};
   const tr=trendMap[d.market_trend_state]||[d.market_trend_state||'—',''];
   const entry=entryMap[d.entry_state]||d.entry_state||'—';
   const en=d.entry_signal||{};
-  document.getElementById('modalTitle').textContent=`微臺／台指期 ${sessionName} 詳情`;
-  document.getElementById('modalSub').textContent=`${j.trading_date||'—'} ・ 現價 ${fmt(d.price)} ・ ${stageText(d.decision_stage)}`;
+  document.getElementById('modalTitle').textContent=`${meta.label} ${sessionName} 詳情`;
+  document.getElementById('modalSub').textContent=`${meta.symbol} ・ ${j.trading_date||'—'} ・ 現價 ${fmt(d.price)} ・ ${stageText(d.decision_stage)}`;
   document.getElementById('modalTrendBox').innerHTML=`<b>整體：</b>${tr[0]} ${fmt(d.market_trend_strength_pct)}%<br><b>現在動作：</b>${entry} ${fmt(d.entry_strength_pct)}%`;
   document.getElementById('modalReasonBox').innerHTML=`<b>為什麼：</b>${reasonText(d)}`;
   document.getElementById('modalLong').textContent=fmt(en.next_long_trigger_level);
@@ -191,10 +229,21 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDetailModal();}
 async function jsonFetch(url){const r=await fetch(url,{cache:'no-store'});const text=await r.text();let j;try{j=JSON.parse(text);}catch(_){throw new Error(`HTTP ${r.status}：${text.slice(0,120)||'非 JSON 回應'}`);}if(!r.ok)throw new Error(j.detail||`HTTP ${r.status}`);return j;}
 
 async function loadFuturesRadar(){
+  const product=selectedProduct;
+  const meta=PRODUCTS[product]||{short:product};
+  futuresRadar.innerHTML=`<div class="muted">讀取 ${meta.short} 日盤／夜盤雷達…</div>`;
   try{
-    const [day,night]=await Promise.all([jsonFetch('/api/blackbox/futures/threshold?session=day'),jsonFetch('/api/blackbox/futures/threshold?session=night')]);
-    futuresRadar.innerHTML=radarCard('day',day)+radarCard('night',night);
-  }catch(e){futuresRadar.innerHTML=`<div class="radar-card"><div class="status error">期貨雷達讀取失敗：${String(e.message||e)}</div></div>`;}
+    const qp=encodeURIComponent(product);
+    const [day,night]=await Promise.all([
+      jsonFetch(`/api/blackbox/futures/threshold?product=${qp}&session=day`),
+      jsonFetch(`/api/blackbox/futures/threshold?product=${qp}&session=night`)
+    ]);
+    if(product!==selectedProduct)return;
+    futuresRadar.innerHTML=radarCard(product,'day',day)+radarCard(product,'night',night);
+  }catch(e){
+    if(product!==selectedProduct)return;
+    futuresRadar.innerHTML=`<div class="radar-card"><div class="status error">${meta.short} 雷達讀取失敗：${String(e.message||e)}</div></div>`;
+  }
 }
 
 async function loadQuotes(){
