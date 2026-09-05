@@ -849,7 +849,7 @@ button{cursor:pointer}
         <button data-min="15">15分</button>
         <button data-min="30">30分</button>
         <button data-min="60">60分</button>
-        <button disabled title="待接多日歷史K資料">日</button>
+        <button data-min="1440">日</button>
       </div>
       <div class="chart-meta"><span id="techDate">—</span><span id="techMode">3分K + MA5 / MA10 / MA20</span></div>
       <div class="chart-card tall"><canvas id="kChart"></canvas></div>
@@ -953,12 +953,20 @@ let currentBars=[];
 let current1mBars=[];
 let oneMinSourceSession='day';
 let oneMinTradingDate=null;
+let currentDailyBars=[];
+let dailyFirstDate=null;
+let dailyLastDate=null;
 let techMinutes=3;
 let currentQuote=null;
 let latestThreshold=null;
 let barsSourceSession='day';
 let thresholdSourceSession='day';
 let lastBarStamp=null;
+let quoteDataSource='—';
+let oneMinDataSource='—';
+let barsDataSource='—';
+let dailyDataSource='—';
+let thresholdDataSource='—';
 
 function taipeiClock(){
   const parts=new Intl.DateTimeFormat('en-US',{
@@ -1044,9 +1052,15 @@ function yahooUrl(meta){
 async function loadQuote(){
   const m=PRODUCTS[current];
   try{
-    const u=`/api/quote?url=${encodeURIComponent(yahooUrl(m))}&symbol=${encodeURIComponent(m.symbol)}`;
-    const d=await jsonFetch(u);
+    // 先問期交所 OpenAPI。只有官方資料不具即時性／無資料／失敗時，才轉 Yahoo 備援。
+    let d=await jsonFetch(`/api/blackbox/futures/quote?product=${encodeURIComponent(m.product)}&session=${session}`);
+    if(!d?.ok || d?.fallback_required){
+      const fallbackUrl=`/api/quote?url=${encodeURIComponent(yahooUrl(m))}&symbol=${encodeURIComponent(m.symbol)}`;
+      const y=await jsonFetch(fallbackUrl);
+      d={...y,ok:true,source:'yahoo_fallback',fallback:true,official_reason:d?.reason||'taifex_unavailable',official_meta:d?.official_meta||null};
+    }
     currentQuote=d;
+    quoteDataSource=d.source||'—';
     const last=d.last;
     qs('#lastPrice').textContent=fmt(last);
     qs('#bidPrice').textContent=fmt(d.bid);
@@ -1070,20 +1084,18 @@ async function loadQuote(){
     renderTrendDetail(d);
     renderQuoteDetails();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
-    { const st=renderMarketState(); setBadge(st.open?(d.cached?'行情快取':'行情已抓取'):'市場休息',st.open?(d.cached?'warn':'ok'):'warn'); }
+    const st=renderMarketState();
+    const src=d.source==='taifex_openapi'?'期交所官方':d.source==='yahoo_fallback'?'Yahoo備援':(d.source||'行情');
+    setBadge(`${src}${d.provider_latency_ms!=null?` ${fmt(d.provider_latency_ms,1)}ms`:''}`,d.source==='yahoo_fallback'?'warn':'ok');
   }catch(err){
     setBadge('行情讀取失敗','bad');
     qs('#quoteTime').textContent='讀取失敗';
-    currentQuote=null;
-    renderSnapshot(null);
-    renderDepth(null);
-    renderDetailDepth(null);
-    renderTrendDepth(null);
-    renderTrendDetail(null);
-    renderQuoteDetails();
+    currentQuote=null; quoteDataSource='讀取失敗';
+    renderSnapshot(null); renderDepth(null); renderDetailDepth(null); renderTrendDepth(null); renderTrendDetail(null); renderQuoteDetails();
     console.error(err);
   }
 }
+
 function renderSnapshot(d){
   const box=qs('#snapshotTable');
   if(!d){
@@ -1225,6 +1237,7 @@ async function load1mBars(){
     current1mBars=bars;
     oneMinSourceSession=used;
     oneMinTradingDate=j.trading_date||null;
+    oneMinDataSource=j.source||'—';
     renderMA();
     renderThreshold();
     setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
@@ -1234,6 +1247,26 @@ async function load1mBars(){
     oneMinTradingDate=null;
     renderMA();
     console.error('1m bars',err);
+  }
+}
+
+async function loadDailyBars(){
+  const m=PRODUCTS[current];
+  try{
+    const j=await jsonFetch(`/api/blackbox/futures/daily?product=${encodeURIComponent(m.product)}&range=6mo&limit=180`);
+    if(j?.ok===false)throw new Error(j.error||'daily data failed');
+    currentDailyBars=(j.bars||[]).filter(b=>b.close!==null&&b.close!==undefined);
+    dailyDataSource=j.source||'—';
+    dailyFirstDate=j.first_date||currentDailyBars[0]?.trading_date||null;
+    dailyLastDate=j.last_date||currentDailyBars[currentDailyBars.length-1]?.trading_date||null;
+    if(techMinutes===1440){
+      renderMA();
+      setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
+    }
+  }catch(err){
+    currentDailyBars=[];dailyFirstDate=null;dailyLastDate=null;
+    if(techMinutes===1440){renderMA();setTimeout(()=>{drawK();drawVolume('#techVol',[])},20);}
+    console.error('daily bars',err);
   }
 }
 
@@ -1258,6 +1291,7 @@ async function loadBars(){
     }
     currentBars=bars;
     barsSourceSession=used;
+    barsDataSource=j.source||'—';
     lastBarStamp=currentBars.length?currentBars[currentBars.length-1].ts_utc:null;
     const label=`${used==='day'?'日盤':'夜盤'} ${j.trading_date||'—'}${(!st.open&&used!==wanted)?'（休市回看）':''}`;
     qs('#trendDate').textContent=label;
@@ -1330,17 +1364,24 @@ function aggregate3mBars(bars, minutes){
   return aggregateBarsByIndex(bars,minutes,3);
 }
 function getTechBars(){
+  if(techMinutes===1440)return currentDailyBars.slice();
   if(techMinutes===1)return current1mBars.slice();
   if(techMinutes===3)return currentBars.slice();
   if(current1mBars.length)return aggregateBarsByIndex(current1mBars,techMinutes,1);
   return aggregate3mBars(currentBars,techMinutes);
 }
 function updateTechSourceLabel(){
+  if(techMinutes===1440){
+    if(qs('#techDate'))qs('#techDate').textContent=currentDailyBars.length
+      ? `日K ${dailyFirstDate||'—'} ～ ${dailyLastDate||'—'}｜${dailyDataSource==='taifex_openapi_primary_yahoo_history_fallback'?'期交所官方優先＋Yahoo歷史備援':dailyDataSource==='yahoo_fallback'?'Yahoo備援':dailyDataSource}`
+      : '日K 資料讀取中／暫無資料';
+    return;
+  }
   const is1mBased=techMinutes!==3 && current1mBars.length;
   const used=is1mBased?oneMinSourceSession:barsSourceSession;
   const date=is1mBased?oneMinTradingDate:(qs('#trendDate')?.textContent||'').replace(/^.*? /,'').replace('（休市回看）','');
   const st=marketStatus();
-  if(qs('#techDate'))qs('#techDate').textContent=`${used==='day'?'日盤':'夜盤'} ${date||'—'}${!st.open?'（休市回看）':''}`;
+  if(qs('#techDate')){const src=(is1mBased?oneMinDataSource:barsDataSource);const srcText=src==='taifex_openapi'?'｜期交所官方':src?.includes('yahoo')?'｜Yahoo備援':'';qs('#techDate').textContent=`${used==='day'?'日盤':'夜盤'} ${date||'—'}${!st.open?'（休市回看）':''}${srcText}`;}
 }
 function smaFrom(bars,n){
   if(bars.length<n)return null;
@@ -1350,9 +1391,10 @@ function smaFrom(bars,n){
 function renderMA(){
   const bars=getTechBars();
   const vals=[5,10,20].map(n=>[n,smaFrom(bars,n)]);
-  qs('#maRow').innerHTML='<strong>MA</strong>'+vals.map(([n,v])=>`<span>${n}T <b>${fmt(v)}</b></span>`).join('');
+  const unit=techMinutes===1440?'日':'T';
+  qs('#maRow').innerHTML='<strong>MA</strong>'+vals.map(([n,v])=>`<span>${n}${unit} <b>${fmt(v)}</b></span>`).join('');
   const mode=qs('#techMode');
-  if(mode)mode.textContent=`${techMinutes}分K + MA5 / MA10 / MA20`;
+  if(mode)mode.textContent=techMinutes===1440?'日K + MA5 / MA10 / MA20':`${techMinutes}分K + MA5 / MA10 / MA20`;
   updateTechSourceLabel();
 }
 
@@ -1501,6 +1543,7 @@ async function loadThreshold(){
       if(j2?.dynamic_threshold?.ok){j=j2;used=alt;ok=true;}
     }
     latestThreshold=j;
+    thresholdDataSource=j.source||'—';
     thresholdSourceSession=used;
     renderThreshold();
     if(qs('#analysisOverlay')?.classList.contains('show'))renderAnalysisModal();
@@ -1700,7 +1743,7 @@ function setSession(s){
 }
 async function refreshAll(){
   setBadge('讀取中');
-  await Promise.allSettled([loadQuote(),loadBars(),load1mBars(),loadThreshold()]);
+  await Promise.allSettled([loadQuote(),loadBars(),load1mBars(),loadDailyBars(),loadThreshold()]);
 }
 
 qs('#analysisBtn').addEventListener('click',openAnalysis);
@@ -1741,5 +1784,6 @@ setInterval(()=>{
     loadThreshold();
   }
 },15000);
+setInterval(()=>{if(!document.hidden)loadDailyBars()},60000);
 
 </script></body></html>
