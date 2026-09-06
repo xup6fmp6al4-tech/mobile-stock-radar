@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import time
 import zipfile
 from collections import defaultdict
@@ -20,6 +21,12 @@ router = APIRouter(prefix="/api/blackbox/futures", tags=["futures-profile"])
 
 _CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
 CACHE_SECONDS = 900
+
+def _audit(tag: str, payload: dict[str, Any]):
+    try:
+        print(f"{tag} " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+    except Exception:
+        pass
 
 
 def _cache_get(key):
@@ -228,13 +235,32 @@ def price_volume(
         try:
             exact = _tick_price_volume(product, str(trading_date), session)
             if exact.get("ok"):
-                return {**exact, "rows": exact["rows"][:limit]}
+                out = {**exact, "rows": exact["rows"][:limit]}
+                _audit("PV_AUDIT", {
+                    "product": product, "session": session, "trading_date": out.get("trading_date"),
+                    "ok": bool(out.get("ok")), "exact": bool(out.get("exact")),
+                    "count": int(out.get("count") or len(out.get("rows") or [])),
+                    "returned_rows": len(out.get("rows") or []),
+                    "total_volume": out.get("total_volume"), "poc_price": out.get("poc_price"),
+                    "source": out.get("source"), "active_expiry": out.get("active_expiry"),
+                })
+                return out
         except Exception:
             pass
 
     # 盤中官方日檔尚未形成時，用真正1分K做可辨識的估算，絕不冒充逐筆。
     est = _one_minute_estimate(product, session)
-    return {**est, "rows": (est.get("rows") or [])[:limit]}
+    out = {**est, "rows": (est.get("rows") or [])[:limit]}
+    _audit("PV_AUDIT", {
+        "product": product, "session": session, "trading_date": out.get("trading_date"),
+        "ok": bool(out.get("ok")), "exact": bool(out.get("exact")),
+        "count": int(out.get("count") or len(out.get("rows") or [])),
+        "returned_rows": len(out.get("rows") or []),
+        "total_volume": out.get("total_volume"), "poc_price": out.get("poc_price"),
+        "source": out.get("source"), "source_1m": out.get("source_1m"),
+        "error": out.get("error"),
+    })
+    return out
 
 
 @router.get("/diagnostics")
@@ -315,4 +341,23 @@ def diagnostics(
         "market_open": bool(overlay._market_open_info().get("open")),
         "note": "完整度只依實際取得資料判定；缺資料不補假值。",
     }
+    _audit("DIAG_AUDIT", {
+        "product": product, "session": session, "trading_date": out.get("trading_date"),
+        "quote_ok": bool(out.get("quote", {}).get("ok")),
+        "quote_source": out.get("quote", {}).get("source"),
+        "depth_count": int(out.get("depth", {}).get("count") or 0),
+        "depth_complete": bool(out.get("depth", {}).get("complete")),
+        "count_1m": int(out.get("bars", {}).get("count_1m") or 0),
+        "count_3m": int(out.get("bars", {}).get("count_3m") or 0),
+        "count_5m": int(out.get("bars", {}).get("count_5m") or 0),
+        "source_1m": out.get("bars", {}).get("source_1m"),
+        "source_3m": out.get("bars", {}).get("source_3m"),
+        "institutional_ok": bool(out.get("institutional", {}).get("ok")),
+        "institutional_date": out.get("institutional", {}).get("date"),
+        "margin_ok": bool(out.get("margin", {}).get("ok")),
+        "margin_date": out.get("margin", {}).get("date"),
+        "pcr_ok": bool(out.get("put_call_ratio", {}).get("ok")),
+        "pcr_date": out.get("put_call_ratio", {}).get("date"),
+        "market_open": bool(out.get("market_open")),
+    })
     return _cache_put(key, out)
