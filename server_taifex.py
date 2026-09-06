@@ -17,6 +17,7 @@ app.include_router(taifex_router)
 PATCHES = [
     "/static/futures-display-patch.js?v=20260906-official-1m-3",
     "/static/futures-complete-patch.js?v=20260906-complete-3",
+    "/static/futures-fast-analysis-patch.js?v=20260907-fast-analysis-1",
 ]
 
 INLINE_PV_FIX = r"""
