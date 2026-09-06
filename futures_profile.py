@@ -284,15 +284,22 @@ def _fixed_institution_rows(product: str):
     data, meta = overlay._taifex_get(endpoint, 300)
     code = archive.PRODUCT_CODE.get(product)
     name_aliases = set(full_data.PRODUCT_META.get(product, {}).get("institution_aliases", []))
+
+    # TAIFEX OpenAPI 的 ContractCode 實際回傳是中文契約名稱，
+    # 例如 TX 為「臺股期貨」，不是網站英文頁上顯示的「TX」。
+    # 因此同時接受：商品代碼、ContractCode 中文名稱、ProductName 中文名稱。
     rows = []
     for r in data:
         contract_code = str(full_data._get(r, "ContractCode", "Contract", "ProductID", "商品代號") or "").strip()
         contract_name = str(full_data._get(r, "ProductName", "ContractName", "商品名稱", "商品別") or "").strip()
-        if code and contract_code == code:
+
+        code_match = bool(code and contract_code.upper() == str(code).upper())
+        alias_code_match = bool(name_aliases and any(a and a in contract_code for a in name_aliases))
+        alias_name_match = bool(name_aliases and any(a and a in contract_name for a in name_aliases))
+
+        if code_match or alias_code_match or alias_name_match:
             rows.append(r)
-            continue
-        if name_aliases and any(a and a in contract_name for a in name_aliases):
-            rows.append(r)
+
     return rows, meta
 
 
@@ -312,7 +319,19 @@ def institutional_fixed(product: str = "TXF_CONT"):
                 "reason": "no_contract_rows", "source": "taifex_openapi",
                 "source_detail": endpoint,
             }
-            _audit("INST_AUDIT", {"product": product, "ok": False, "row_count": 0, "reason": "no_contract_rows"})
+            try:
+                raw, _ = overlay._taifex_get(endpoint, 300)
+                seen_codes = sorted({
+                    str(full_data._get(r, "ContractCode", "Contract", "ProductID", "商品代號") or "").strip()
+                    for r in raw
+                    if isinstance(r, dict)
+                })[:20]
+            except Exception:
+                seen_codes = []
+            _audit("INST_AUDIT", {
+                "product": product, "ok": False, "row_count": 0,
+                "reason": "no_contract_rows", "seen_contract_codes": seen_codes
+            })
             return _cache_put(key, out)
 
         parsed = {}
