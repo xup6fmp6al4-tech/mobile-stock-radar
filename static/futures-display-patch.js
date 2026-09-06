@@ -12,6 +12,7 @@ const CSS=`
 const st=document.createElement('style');st.id='full-data-style';st.textContent=CSS;document.head.appendChild(st);
 
 let FD={history:[],inst:null,large:null,pcr:null,margin:null,news:[],mode:'oi',complete:null,hits:{}};
+let FD_INTRADAY={key:'',ts:0,promise:null,data:null};
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const n=v=>{const x=Number(v);return Number.isFinite(x)?x:null};
 const dep=d=>Array.isArray(d?.depth)?d.depth.slice(0,5):[];
@@ -30,6 +31,7 @@ function patchDOM(){
    const al=qs('#alert-detail');if(al)al.innerHTML='<div class="alert-manager" data-alert-manager></div>';
  }
  const td=qs('#view-trend .depth-title small');if(td)td.textContent='期交所 MIS 即時最佳五檔價量';
+ const tech=qs('#view-technical');if(tech&&!qs('#intradayStatus')){const meta=tech.querySelector('.chart-meta');const x=document.createElement('div');x.id='intradayStatus';x.style.cssText='padding:7px 10px;background:#071014;border-bottom:1px solid #26343a;color:#9fd8ef;font-size:12px;font-weight:700';x.textContent='分K資料讀取中…';if(meta)meta.insertAdjacentElement('afterend',x);else tech.prepend(x)}
  const inst=qs('#view-institutional');if(inst)inst.innerHTML='<div id="instSource" class="data-source-line">三大法人｜期交所 OpenAPI</div><div class="inst-toolbar"><button class="active" data-inst-mode="oi">未平倉</button><button data-inst-mode="trade">當日交易</button></div><div id="institutionalTable"></div><div class="section-title">市場結構</div><div id="marketStructure" class="market-structure-grid"></div>';
  const pp=qs('#trend-price-panel');if(pp)pp.innerHTML='<div id="trendPriceVolume" class="price-volume-list"></div>';
  const np=qs('#trend-news-panel');if(np)np.innerHTML='<div id="trendNewsList"></div>';
@@ -57,6 +59,67 @@ renderDetailDepth=function(d){const b=qs('#detailDepthBook');if(b)b.innerHTML=bo
 renderTrendDepth=function(d){const m=qs('#trendDepthMeta'),b=qs('#trendDepthBook');if(!m||!b)return;const a=dep(d),bs=a.reduce((s,x)=>s+(Number(x.bid_qty)||0),0),as=a.reduce((s,x)=>s+(Number(x.ask_qty)||0),0),sp=n(d?.ask)!=null&&n(d?.bid)!=null?n(d.ask)-n(d.bid):null;m.innerHTML=`<span>買 ${fmt(bs,0)}</span><span class="low">低 ${fmt(d?.low)}</span><span class="spread">價差 ${fmt(sp)}</span><span class="high">高 ${fmt(d?.high)}</span><span>賣 ${fmt(as,0)}</span>`;b.innerHTML=bookRows(d,'trend-book-row')};
 renderQuoteDetails=function(){const b=qs('#quoteDetailGrid');if(!b)return;const d=currentQuote||{},a=dep(d),bs=a.reduce((s,x)=>s+(Number(x.bid_qty)||0),0),as=a.reduce((s,x)=>s+(Number(x.ask_qty)||0),0),amp=d.amplitude_pct??((n(d.high)!=null&&n(d.low)!=null&&n(d.prev_close))?((d.high-d.low)/d.prev_close*100):null),fields=[['成交',d.last],['漲跌',d.change],['幅度',d.change_pct==null?null:`${signed(d.change_pct)}%`],['單量',d.trade_qty],['總量',d.volume],['振幅',amp==null?null:`${fmt(amp)}%`],['五檔買量',a.length?bs:null],['五檔賣量',a.length?as:null],['五檔差',a.length?bs-as:null],['結算',d.settlement],['未平',d.open_interest],['參考',d.prev_close],['最低',d.low],['最高',d.high],['開盤',d.open]];b.innerHTML=fields.map(([k,v])=>`<div class="quote-detail-cell"><span class="k">${k}</span><span class="v ${v==null?'muted-val':''}">${v==null?'—':(typeof v==='string'&&v.includes('%')?v:fmt(v))}</span></div>`).join('')};
 
+function fdIntradaySourceName(v){
+ if(!v)return '—';
+ if(String(v).includes('taifex_mis_getChartDataTick'))return '期交所 MIS 分K';
+ if(String(v).includes('yahoo'))return 'Yahoo 1分K備援';
+ if(String(v).includes('observed_snapshots'))return '期交所 MIS 實際觀測';
+ if(String(v).includes('local_archive'))return '本機歷史3分K';
+ return String(v);
+}
+function fdSetIntradayStatus(j,err){
+ const b=qs('#intradayStatus');if(!b)return;
+ if(err){b.style.color='#fbbf24';b.textContent=`分K讀取失敗｜${String(err.message||err).slice(0,100)}`;return}
+ const c1=Number(j?.count_1m||0),c3=Number(j?.count_3m||0),src=fdIntradaySourceName(j?.source_1m||j?.source_3m);
+ const sess=j?.session==='night'?'夜盤':'日盤';const back=j?.session&&j?.requested_session&&j.session!==j.requested_session?'（休市回看）':'';
+ b.style.color=(c1||c3)?'#7ee2a8':'#fbbf24';
+ b.textContent=`1分 ${c1}筆｜3分 ${c3}筆｜${sess}${back} ${j?.trading_date||'—'}｜來源 ${src}${(!c1&&!c3&&j?.errors?.length)?`｜${String(j.errors[j.errors.length-1]).slice(0,80)}`:''}`;
+}
+async function fdGetIntraday(force=false){
+ const m=PRODUCTS[current],key=`${m.product}:${session}`,now=Date.now();
+ if(!force&&FD_INTRADAY.key===key&&FD_INTRADAY.data&&now-FD_INTRADAY.ts<5000)return FD_INTRADAY.data;
+ if(FD_INTRADAY.key===key&&FD_INTRADAY.promise)return FD_INTRADAY.promise;
+ if(FD_INTRADAY.key!==key){FD_INTRADAY={key,ts:0,promise:null,data:null};}
+ const url=`/api/blackbox/futures/intraday-bars?product=${encodeURIComponent(m.product)}&session=${session}&limit_1m=1000&limit_3m=400`;
+ FD_INTRADAY.promise=jsonFetch(url).then(j=>{FD_INTRADAY.data=j;FD_INTRADAY.ts=Date.now();fdSetIntradayStatus(j);return j}).catch(e=>{fdSetIntradayStatus(null,e);throw e}).finally(()=>{FD_INTRADAY.promise=null});
+ return FD_INTRADAY.promise;
+}
+
+load1mBars=async function(){
+ const wanted=session;
+ try{
+   const j=await fdGetIntraday();
+   const bars=(j?.bars_1m||[]).filter(b=>b.close!==null&&b.close!==undefined&&Number.isFinite(Number(b.close)));
+   current1mBars=bars;
+   oneMinSourceSession=j?.session||wanted;
+   oneMinTradingDate=j?.trading_date||bars[bars.length-1]?.trading_date||null;
+   oneMinDataSource=j?.source_1m||'—';
+   renderMA();renderThreshold();
+   setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);
+ }catch(err){
+   current1mBars=[];oneMinSourceSession=wanted;oneMinTradingDate=null;oneMinDataSource='讀取失敗';renderMA();setTimeout(()=>{drawK();drawVolume('#techVol',getTechBars())},20);console.error('intraday 1m',err);
+ }
+};
+
+loadBars=async function(){
+ const wanted=session;
+ try{
+   const j=await fdGetIntraday();
+   const bars=(j?.bars_3m||[]).filter(b=>b.close!==null&&b.close!==undefined&&Number.isFinite(Number(b.close)));
+   currentBars=bars;
+   barsSourceSession=j?.session||wanted;
+   barsDataSource=j?.source_3m||'—';
+   lastBarStamp=currentBars.length?currentBars[currentBars.length-1].ts_utc:null;
+   const back=(j?.session&&j.session!==wanted)?'（休市回看）':'';
+   const label=`${barsSourceSession==='day'?'日盤':'夜盤'} ${j?.trading_date||bars[bars.length-1]?.trading_date||'—'}${back}`;
+   if(qs('#trendDate'))qs('#trendDate').textContent=label;
+   if(qs('#techDate'))qs('#techDate').textContent=label;
+   renderBarsTable();renderMA();renderThreshold();renderQuoteDetails();if(currentQuote)qs('#quoteTime').textContent=displayQuoteTime(currentQuote);renderMarketState();setTimeout(drawAllCharts,30);
+ }catch(err){
+   currentBars=[];lastBarStamp=null;barsSourceSession=wanted;barsDataSource='讀取失敗';renderBarsTable();renderMA();renderQuoteDetails();renderMarketState();setTimeout(drawAllCharts,30);console.error('intraday 3m',err);
+ }
+};
+
 async function fdHistory(){try{const m=PRODUCTS[current],j=await jsonFetch(`/api/blackbox/futures/snapshot-history?product=${encodeURIComponent(m.product)}&session=${session}&limit=30`);FD.history=j.rows||[];renderSnapshot(currentQuote);fdPrice()}catch(e){FD.history=[];renderSnapshot(currentQuote)}}
 function fdPrice(){const targets=[qs('#detailPriceVolume'),qs('#trendPriceVolume')].filter(Boolean);if(!targets.length)return;let a=new Map(),src='';FD.history.forEach(r=>{const p=n(r.last),q=n(r.trade_qty);if(p!=null&&q!=null&&q>0)a.set(p,(a.get(p)||0)+q)});if(a.size)src='期交所 MIS｜APP觀測快照量增量（非完整逐筆 Tick）';if(a.size<3&&typeof current1mBars!=='undefined'&&current1mBars.length){a=new Map();current1mBars.forEach(r=>{const p=n(r.close),q=n(r.volume);if(p!=null&&q!=null&&q>0)a.set(p,(a.get(p)||0)+q)});src='1分K估算分價｜每分鐘量歸到該分鐘收盤價'}const rows=[...a].sort((x,y)=>y[1]-x[1]).slice(0,14),mx=Math.max(1,...rows.map(x=>x[1]));const h=rows.length?`<div class="pv-source">${src}</div>`+rows.map(([p,q])=>`<div class="pv-row"><span class="pv-price">${fmt(p)}</span><span class="pv-bar"><i style="width:${Math.max(2,q/mx*100)}%"></i></span><span class="pv-qty">${fmt(q,0)}</span></div>`).join(''):'<div class="empty-state"><strong>尚無分價量</strong><span>沒有資料就不補假數字。</span></div>';targets.forEach(t=>t.innerHTML=h)}
 function fdAlertKey(){return `futures-alerts:${current}`}function fdGetAlerts(){try{return JSON.parse(localStorage.getItem(fdAlertKey())||'[]')}catch(e){return []}}function fdSaveAlerts(a){localStorage.setItem(fdAlertKey(),JSON.stringify(a))}
@@ -69,7 +132,7 @@ async function fdNews(){try{const m=PRODUCTS[current],j=await jsonFetch(`/api/bl
 async function fdComplete(){try{const m=PRODUCTS[current];FD.complete=await jsonFetch(`/api/blackbox/futures/completeness?product=${encodeURIComponent(m.product)}&session=${session}`)}catch(e){FD.complete=null}const b=qs('#dataCompleteness'),d=FD.complete||{};if(b)b.innerHTML=[['即時',d.realtime_quote],['五檔',d.five_level_depth],['法人',d.institutional],['保證金',d.margin],['P/C',d.put_call_ratio]].map(([k,v])=>`<div class="${v?'ok':'no'}">${k}<br>${v?'✓':'—'}</div>`).join('')}
 
 const oldRefresh=refreshAll;refreshAll=async function(){setBadge('讀取中');FD.history=[];await Promise.allSettled([loadQuote(),loadBars(),load1mBars(),loadDailyBars(),loadThreshold(),fdInstitution(),fdNews(),fdComplete()]);fdPrice();fdAlerts()};
-const oldSession=setSession;setSession=function(s){session=s;qs('#sessionDay').classList.toggle('active',s==='day');qs('#sessionNight').classList.toggle('active',s==='night');FD.history=[];loadQuote();loadBars();load1mBars();loadThreshold();fdComplete()};
+const oldSession=setSession;setSession=function(s){session=s;qs('#sessionDay').classList.toggle('active',s==='day');qs('#sessionNight').classList.toggle('active',s==='night');FD.history=[];FD_INTRADAY={key:'',ts:0,promise:null,data:null};loadQuote();loadBars();load1mBars();loadThreshold();fdComplete()};
 
 document.addEventListener('click',e=>{const im=e.target.closest('[data-inst-mode]');if(im){FD.mode=im.dataset.instMode;qsa('[data-inst-mode]').forEach(x=>x.classList.toggle('active',x===im));fdRenderInstitution()}const add=e.target.closest('[data-alert-add]');if(add){const b=add.closest('[data-alert-manager]'),dir=b.querySelector('[data-alert-dir]').value,price=Number(b.querySelector('[data-alert-price]').value);if(Number.isFinite(price)){const a=fdGetAlerts();a.push({dir,price});fdSaveAlerts(a);fdAlerts()}}const del=e.target.closest('[data-alert-del]');if(del){const a=fdGetAlerts(),i=Number(del.dataset.alertDel);a.splice(i,1);fdSaveAlerts(a);fdAlerts()}});
 patchDOM();fdAlerts();fdNews();fdComplete();refreshAll();setInterval(()=>{if(!document.hidden)fdInstitution()},300000);setInterval(()=>{if(!document.hidden)fdNews()},600000);setInterval(()=>{if(!document.hidden)fdComplete()},60000);

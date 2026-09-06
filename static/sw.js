@@ -1,4 +1,4 @@
-const CACHE='stock-radar-v0.8-full-data';
+const CACHE='stock-radar-v0.9-intraday-bars';
 const PATCH='/static/futures-display-patch.js';
 const SHELL=['/','/manifest.webmanifest','/static/icon-192.png','/static/icon-512.png',PATCH];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).catch(()=>{}));self.skipWaiting();});
@@ -8,7 +8,7 @@ async function injectPatch(request){
   const r=await fetch(request,{cache:'no-store'});if(!r.ok)return r;
   const type=r.headers.get('content-type')||'';if(!type.includes('text/html'))return r;
   let html=await r.text();
-  if(!html.includes('futures-display-patch.js'))html=html.replace('</body>',`<script src="${PATCH}?v=20260906-full-1"></script></body>`);
+  if(!html.includes('futures-display-patch.js'))html=html.replace('</body>',`<script src="${PATCH}?v=20260906-intraday-1"></script></body>`);
   const h=new Headers(r.headers);h.delete('content-length');h.set('cache-control','no-store');
   return new Response(html,{status:r.status,statusText:r.statusText,headers:h});
  }catch(err){return (await caches.match(request))||Response.error();}
