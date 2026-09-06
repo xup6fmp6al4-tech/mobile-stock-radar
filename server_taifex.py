@@ -5,7 +5,6 @@ from futures_1m_archive import router as one_minute_router
 from futures_profile import router as profile_router
 from taifex_overlay import router as taifex_router
 from futures_full_data import router as full_data_router
-from futures_chat import router as chat_router
 from server import app as legacy_app, STATIC_DIR
 
 app = FastAPI(title="Mobile Stock Radar - TAIFEX Full Data")
@@ -14,12 +13,10 @@ app.include_router(one_minute_router)
 app.include_router(profile_router)
 app.include_router(full_data_router)
 app.include_router(taifex_router)
-app.include_router(chat_router)
 
 PATCHES = [
     "/static/futures-display-patch.js?v=20260906-official-1m-3",
     "/static/futures-complete-patch.js?v=20260906-complete-3",
-    "/static/futures-chat-patch.js?v=20260906-chat-context-5",
 ]
 
 INLINE_PV_FIX = r"""
