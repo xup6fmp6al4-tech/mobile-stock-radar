@@ -16,7 +16,7 @@ app.include_router(taifex_router)
 
 PATCHES = [
     "/static/futures-display-patch.js?v=20260906-official-1m-3",
-    "/static/futures-complete-patch.js?v=20260906-complete-2",
+    "/static/futures-complete-patch.js?v=20260906-complete-3",
 ]
 
 INLINE_PV_FIX = r"""
@@ -29,7 +29,7 @@ const fmt2=(v,d=0)=>num(v)==null?'—':Number(v).toLocaleString('zh-TW',{maximum
 let pvBusy=false;
 
 async function forcePriceVolume(){
-  const targets=[q('#detailPriceVolume'),q('#trendPriceVolume')].filter(Boolean);
+  const targets=[q('#price-detail'),q('#trend-price-panel')].filter(Boolean);
   if(!targets.length || pvBusy || typeof PRODUCTS==='undefined') return;
   const m=PRODUCTS[current];
   if(!m?.product)return;
@@ -47,7 +47,7 @@ async function forcePriceVolume(){
       : '';
 
     const j=await jsonFetch(
-      `/api/blackbox/futures/price-volume?product=${encodeURIComponent(m.product)}&session=${session}${td}&limit=120&v=20260906-pv-force-2`
+      `/api/blackbox/futures/price-volume?product=${encodeURIComponent(m.product)}&session=${session}${td}&limit=120&v=20260906-pv-force-3`
     );
 
     const rows=(j?.rows||[]).filter(
@@ -82,6 +82,7 @@ async function forcePriceVolume(){
 
     targets.forEach(t=>{
       t.dataset.pvReady='1';
+      t.dataset.pvSource=exact?'official-tick':'1m-estimate';
       t.innerHTML=summary+note+list;
     });
 

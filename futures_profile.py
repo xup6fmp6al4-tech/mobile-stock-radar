@@ -29,9 +29,9 @@ def _audit(tag: str, payload: dict[str, Any]):
         pass
 
 
-def _cache_get(key):
+def _cache_get(key, max_age: int = CACHE_SECONDS):
     x = _CACHE.get(key)
-    if x and time.time() - x[0] < CACHE_SECONDS:
+    if x and time.time() - x[0] < max_age:
         return x[1]
     return None
 
@@ -230,8 +230,9 @@ def price_volume(
     if not trading_date:
         trading_date = archive._target_date(product, session)
 
-    # 休市/歷史盤優先讀期交所官方逐筆，得到真正逐價成交量。
-    if trading_date:
+    # 休市/歷史盤優先讀期交所官方逐筆；盤中當日不把尚未完成的日檔標成精確全日分價。
+    market_open = bool(overlay._market_open_info().get("open"))
+    if trading_date and not market_open:
         try:
             exact = _tick_price_volume(product, str(trading_date), session)
             if exact.get("ok"):
@@ -263,13 +264,123 @@ def price_volume(
     return out
 
 
+def _institution_kind(item: Any):
+    s = str(item or "").strip()
+    n = "".join(ch for ch in s.lower() if ch.isalnum())
+    if s in {"外資及陸資", "外資", "外資法人"} or n in {
+        "fini", "foreigninstitutionalinvestors", "foreigninvestors",
+        "foreigninstitutionalinvestor", "foreignandmainlandchinaInvestors".lower().replace(" ", "")
+    }:
+        return "foreign"
+    if s in {"投信", "投資信託"} or n in {"investmenttrust", "investmenttrusts", "investmenttrustcompany"}:
+        return "trust"
+    if s in {"自營商", "自營"} or n in {"dealer", "dealers", "proprietarydealer", "proprietarytrader"}:
+        return "dealer"
+    return None
+
+
+def _fixed_institution_rows(product: str):
+    endpoint = "MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"
+    data, meta = overlay._taifex_get(endpoint, 300)
+    code = archive.PRODUCT_CODE.get(product)
+    name_aliases = set(full_data.PRODUCT_META.get(product, {}).get("institution_aliases", []))
+    rows = []
+    for r in data:
+        contract_code = str(full_data._get(r, "ContractCode", "Contract", "ProductID", "商品代號") or "").strip()
+        contract_name = str(full_data._get(r, "ProductName", "ContractName", "商品名稱", "商品別") or "").strip()
+        if code and contract_code == code:
+            rows.append(r)
+            continue
+        if name_aliases and any(a and a in contract_name for a in name_aliases):
+            rows.append(r)
+    return rows, meta
+
+
+def institutional_fixed(product: str = "TXF_CONT"):
+    if product not in archive.PRODUCT_CODE:
+        return {"ok": False, "product": product, "error": "unsupported_product"}
+    key = ("institutional_fixed", product)
+    hit = _cache_get(key, 300)
+    if hit:
+        return {**hit, "provider_cache_hit": True}
+    endpoint = "MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"
+    try:
+        rows, meta = _fixed_institution_rows(product)
+        if not rows:
+            out = {
+                "ok": False, "product": product, "contract": archive.PRODUCT_CODE.get(product),
+                "reason": "no_contract_rows", "source": "taifex_openapi",
+                "source_detail": endpoint,
+            }
+            _audit("INST_AUDIT", {"product": product, "ok": False, "row_count": 0, "reason": "no_contract_rows"})
+            return _cache_put(key, out)
+
+        parsed = {}
+        data_date = None
+        for r in rows:
+            kind = _institution_kind(full_data._get(r, "Item", "Institution", "身份別", "身份"))
+            if not kind:
+                continue
+            data_date = full_data._fmt_date(full_data._get(r, "Date", "TradingDate", "日期")) or data_date
+            parsed[kind] = {
+                "label": "外資" if kind == "foreign" else "投信" if kind == "trust" else "自營商",
+                "trading_long": full_data._num(full_data._get(r, "TradingVolume(Long)", "LongTradingVolume", "交易多方口數")),
+                "trading_short": full_data._num(full_data._get(r, "TradingVolume(Short)", "ShortTradingVolume", "交易空方口數")),
+                "trading_net": full_data._num(full_data._get(r, "TradingVolume(Net)", "NetTradingVolume", "交易淨額")),
+                "oi_long": full_data._num(full_data._get(r, "OpenInterest(Long)", "LongOpenInterest", "未平倉多方口數")),
+                "oi_short": full_data._num(full_data._get(r, "OpenInterest(Short)", "ShortOpenInterest", "未平倉空方口數")),
+                "oi_net": full_data._num(full_data._get(r, "OpenInterest(Net)", "NetOpenInterest", "未平倉淨額")),
+            }
+
+        total = {}
+        for fld in ("trading_long", "trading_short", "trading_net", "oi_long", "oi_short", "oi_net"):
+            vals = [v.get(fld) for v in parsed.values() if v.get(fld) is not None]
+            total[fld] = sum(vals) if vals else None
+
+        out = {
+            "ok": bool(parsed),
+            "product": product,
+            "contract": archive.PRODUCT_CODE.get(product),
+            "date": data_date,
+            "institutions": parsed,
+            "total": total,
+            "source": "taifex_openapi",
+            "source_detail": endpoint,
+            "provider_latency_ms": meta.get("provider_latency_ms"),
+            "matched_rows": len(rows),
+        }
+        _audit("INST_AUDIT", {
+            "product": product, "contract": out.get("contract"), "date": data_date,
+            "ok": bool(out.get("ok")), "matched_rows": len(rows),
+            "keys": sorted(parsed.keys()),
+            "foreign_net": parsed.get("foreign", {}).get("trading_net"),
+            "foreign_oi_net": parsed.get("foreign", {}).get("oi_net"),
+            "trust_net": parsed.get("trust", {}).get("trading_net"),
+            "dealer_net": parsed.get("dealer", {}).get("trading_net"),
+        })
+        return _cache_put(key, out)
+    except Exception as exc:
+        out = {"ok": False, "product": product, "error": repr(exc), "source": "taifex_openapi", "source_detail": endpoint}
+        _audit("INST_AUDIT", {"product": product, "ok": False, "error": repr(exc)})
+        return out
+
+
+# This router is registered before futures_full_data.router, so HTTP requests use the fixed parser.
+@router.get("/institutional")
+def institutional_route(product: str = Query("TXF_CONT")):
+    return institutional_fixed(product)
+
+# diagnostics() calls the module function directly; patch it too.
+full_data.institutional = institutional_fixed
+
+
 @router.get("/diagnostics")
 def diagnostics(
     product: str = Query("TXF_CONT"),
     session: str = Query("day", pattern="^(day|night)$"),
 ):
     key = ("diag", product, session)
-    c = _cache_get(key)
+    c = _cache_get(key, 10)
     if c:
         return c
 
