@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/blackbox/futures", tags=["futures-chat"])
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-sol")
 
-DECISION_RULES_VERSION = "20260906-chat-general-v4"
+DECISION_RULES_VERSION = "20260906-chat-context-v5"
 logger = logging.getLogger("futures_chat")
 
 SYSTEM_INSTRUCTIONS = """你是「市場雷達」內建的聊天與期貨判斷助手。
@@ -160,13 +160,30 @@ def _looks_weather(message: str, history: list[dict[str, str]]) -> bool:
     return False
 
 
-def _looks_trading(message: str) -> bool:
+def _looks_trading(message: str, history: list[dict[str, str]] | None = None, market: dict[str, Any] | None = None) -> bool:
+    """Context-aware trading intent. Short follow-ups in the futures panel inherit trading context."""
     msg = message.strip()
     if any(w in msg for w in TRADING_STRONG_WORDS):
         return True
-    if msg in ("買", "賣", "等"):
+    if msg in ("買", "賣", "等", "多", "空"):
         return True
-    return any(x in msg for x in ("要不要買", "要不要賣", "現在買", "現在賣", "能買嗎", "能空嗎"))
+    direct = (
+        "要不要買", "要不要賣", "現在買", "現在賣", "能買嗎", "能空嗎",
+        "買了會怎樣", "賣了會怎樣", "買了呢", "賣了呢", "現在呢", "那現在呢",
+        "怎麼看", "會怎樣", "可以買嗎", "可以賣嗎", "要跑嗎", "要追嗎",
+    )
+    if any(x in msg for x in direct):
+        return True
+
+    hist = history or []
+    recent = " ".join((x.get("content") or "") for x in hist[-6:])
+    recent_trade = any(w in recent for w in TRADING_STRONG_WORDS) or any(
+        x in recent for x in ("買/賣/等", "目前規則判定", "現價", "持倉", "訊號", "市場休息")
+    )
+    # In the futures-analysis panel, brief elliptical follow-ups should stay on the current market topic.
+    market_active = bool((market or {}).get("product"))
+    short_followup = len(msg) <= 18 and any(x in msg for x in ("買", "賣", "多", "空", "現在", "怎樣", "如何", "呢", "會不會"))
+    return bool(short_followup and market_active and recent_trade)
 
 
 def _find_city(message: str) -> tuple[float, float, str] | None:
@@ -261,16 +278,24 @@ def _weather_reply(weather: dict[str, Any]) -> str:
 
 
 def _general_fallback_reply(message: str, history: list[dict[str, str]]) -> str:
+    """Limited fallback. Never pretends to be free-form AI and avoids canned repetition."""
     msg = message.strip()
     if any(w in msg for w in PROFANITY_WORDS):
-        return "有，我看得懂你是在罵我，不是在問持倉。你要罵可以；你要我改哪裡就直接講，我不會再硬塞交易分析。"
+        return "有，我知道你是在罵我。這句不是交易指令；你直接講哪裡不對，我就處理那一點。"
     if any(x in msg for x in ("你好", "嗨", "哈囉", "在嗎")):
-        return "在。你可以正常跟我聊；問到期貨時我才會自動帶行情。"
+        return "在。期貨、持倉、天氣我現在能處理；自由聊天要等 OpenAI API 連上。"
     if "謝" in msg:
         return "不客氣。"
     if any(x in msg for x in ("你會什麼", "還會說別的", "只能問", "可以聊天")):
-        return "可以聊天，不只期貨。現在沒接 OpenAI API，所以一般聊天能力是簡化版；交易判斷、台灣主要城市天氣、基本對話可以直接用。"
-    return "可以聊。這句不是交易問題，所以我不會硬塞持倉分析。現在是簡化聊天模式；接上 OpenAI API 後才會變成完整自由對話。"
+        return "目前可直接用：期貨判斷、持倉討論、台灣主要城市即時天氣。完整自由聊天尚未啟用，因為 OpenAI API 還沒連線。"
+    if any(x in msg for x in ("說話", "回話", "回答我", "你在幹嘛")):
+        return "有，我在回。只是現在自由聊天 AI 還沒連線；我不再拿固定台詞硬湊答案。"
+
+    last_assistant = next((x.get("content", "") for x in reversed(history) if x.get("role") == "assistant"), "")
+    if msg in last_assistant or (last_assistant and msg[:8] in last_assistant):
+        return "你是在追問我上一句。現在沒有自由聊天 AI，我不想再用固定模板亂接；你若是在問期貨，我會照目前行情接著判。"
+
+    return "這句需要自由語意理解，但 OpenAI API 還沒連線。我先不亂回；如果你是在問目前這個期貨，直接補一句『期貨』或『現在買會怎樣』，我就會接市場資料回答。"
 
 
 
@@ -299,7 +324,7 @@ def _fallback_reply(message: str, market: dict[str, Any], position: dict[str, An
         except Exception as exc:
             return f"天氣資料現在抓不到（{type(exc).__name__}）。我不亂報數字，你可以稍後再問。", "weather_error", None
 
-    if not _looks_trading(message):
+    if not _looks_trading(message, history, market):
         return _general_fallback_reply(message, history), "general", None
 
     a = market.get("analysis") if isinstance(market.get("analysis"), dict) else {}
@@ -325,7 +350,7 @@ def _fallback_reply(message: str, market: dict[str, Any], position: dict[str, An
 
     msg = message.strip()
     if any(k in msg for k in ("買", "多", "進場", "追")):
-        action = f"🟡 結論：先依 APP 現有判定「{decision}」，簡化規則模式不會自行追加新的進場價。"
+        action = f"🟡 如果你現在買：等於在 APP 目前判定「{decision}」的狀態進場。規則模式不會捏造新進場價；先看既有觸發位是否成立。"
     elif any(k in msg for k in ("賣", "空", "出場", "跑", "停損")):
         action = f"🟡 結論：先依 APP 現有判定「{decision}」；若要精算出場，必須有有效失效位或你的成本。"
     elif any(k in msg for k in ("為什麼", "原因")):
@@ -345,7 +370,7 @@ def futures_chat_status():
         "mode": "openai" if has_key else "rules",
         "model": DEFAULT_MODEL if has_key else None,
         "decision_rules_version": DECISION_RULES_VERSION,
-        "note": None if has_key else "OPENAI_API_KEY 尚未設定；目前使用一般聊天＋交易規則模式。",
+        "note": None if has_key else "OPENAI_API_KEY 尚未設定；自由聊天未啟用，目前只保留期貨規則、持倉與即時天氣。",
     }
 
 @router.post("/chat")
@@ -406,7 +431,7 @@ def futures_chat(req: FuturesChatRequest):
         }
 
     general_context: dict[str, Any] = {}
-    intent = "trading" if _looks_trading(req.message) else "general"
+    intent = "trading" if _looks_trading(req.message, history, market_dict) else "general"
     if _looks_weather(req.message, history):
         intent = "weather"
         city = _find_city(req.message)
