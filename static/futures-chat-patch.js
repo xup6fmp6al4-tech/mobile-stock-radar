@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const VER = '20260906-chat-discuss-2';
+const VER = '20260906-chat-fast-3';
 const $ = (s, r=document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -12,6 +12,9 @@ const fmt = (v) => (v===null || v===undefined || v==='' || !Number.isFinite(Numb
 let history = [];
 let sending = false;
 let status = {ai_connected:false, mode:'rules', model:null};
+let pendingText = '';
+let supplementalCache = {ts:0, product:null, session:null, data:{}};
+let supplementalPromise = null;
 
 function contractInfo(){
   const code = ($('#contractCode')?.textContent || 'TX').trim().toUpperCase();
@@ -121,51 +124,133 @@ async function getJson(url){
   }
 }
 
-async function buildMarketContext(){
-  const x=contractInfo();
-  const p=encodeURIComponent(x.product);
-  const s=encodeURIComponent(x.session);
+function numFromText(v){
+  if(v===null||v===undefined)return null;
+  const x=Number(String(v).replace(/,/g,'').replace(/%/g,'').trim());
+  return Number.isFinite(x)?x:null;
+}
 
-  const urls=[
-    `/api/blackbox/futures/realtime?product=${p}&session=${s}`,
-    `/api/blackbox/futures/diagnostics?product=${p}&session=${s}&v=${VER}`,
-    `/api/blackbox/futures/institutional?product=${p}`,
-    `/api/blackbox/futures/large-trader?product=${p}`,
-    `/api/blackbox/futures/margin?product=${p}`,
-    `/api/blackbox/futures/put-call-ratio`,
-    `/api/blackbox/futures/price-volume?product=${p}&session=${s}&limit=40&v=${VER}`,
-    `/api/blackbox/futures/threshold?product=${p}&session=${s}`
-  ];
-  const [quote,diagnostics,institutional,largeTrader,margin,pcr,priceVolume,threshold] =
-    await Promise.all(urls.map(getJson));
+function uiQuoteSnapshot(){
+  let q=null;
+  try{
+    if(typeof currentQuote!=='undefined' && currentQuote && typeof currentQuote==='object') q=currentQuote;
+  }catch(_){q=null}
+  if(q)return q;
+  return {
+    last:numFromText($('#lastPrice')?.textContent),
+    bid:numFromText($('#bidPrice')?.textContent),
+    ask:numFromText($('#askPrice')?.textContent),
+    volume:numFromText($('#totalQty')?.textContent),
+    display_time:$('#quoteTime')?.textContent?.trim()||null,
+    source:'ui_snapshot'
+  };
+}
 
+function uiThresholdSnapshot(){
+  try{
+    if(typeof latestThreshold!=='undefined' && latestThreshold && typeof latestThreshold==='object') return latestThreshold;
+  }catch(_){/* ignore */}
+  return {ok:false,source:'ui_only',dynamic_threshold:{
+    decision:$('#analysisBody .analysis-hero .decision')?.textContent?.trim()||null,
+    key_values:analysisSnapshot().key_values
+  }};
+}
+
+function uiMarketState(){
+  try{
+    if(typeof marketStatus==='function'){
+      const st=marketStatus();
+      if(st && typeof st==='object')return st;
+    }
+  }catch(_){/* ignore */}
+  const strip=$('#marketStateStrip');
+  return {
+    open:strip?.classList.contains('open') ?? null,
+    label:$('#marketStateMain')?.textContent?.trim()||null
+  };
+}
+
+function uiPriceVolumeSnapshot(){
+  const panel=$('#price-detail') || $('#trend-price-panel');
+  if(!panel)return null;
+  const out={source:panel.dataset?.pvSource||null,note:null,price_levels:null,total_volume:null,poc_price:null};
+  const note=panel.querySelector('.profile-exact,.profile-est')?.textContent?.trim();
+  if(note)out.note=note;
+  panel.querySelectorAll('.profile-summary > div').forEach(el=>{
+    const txt=el.textContent||'';
+    const n=numFromText(el.querySelector('b')?.textContent);
+    if(txt.includes('價位數'))out.price_levels=n;
+    else if(txt.includes('總量'))out.total_volume=n;
+    else if(txt.includes('最大量價'))out.poc_price=n;
+  });
+  return out;
+}
+
+function timeframeSnapshot(){
   const tfs={};
   document.querySelectorAll('#trendPeriods .mitake-period').forEach(el=>{
     const tf=el.querySelector('.tf')?.textContent?.trim();
     const state=el.querySelector('.state')?.textContent?.trim();
     if(tf)tfs[tf]=state||'—';
   });
+  return tfs;
+}
 
+async function refreshSupplemental(force=false){
+  const x=contractInfo();
+  const now=Date.now();
+  const same=supplementalCache.product===x.product && supplementalCache.session===x.session;
+  if(!force && same && now-supplementalCache.ts<90000)return supplementalCache.data;
+  if(supplementalPromise)return supplementalPromise;
+  const p=encodeURIComponent(x.product);
+  const s=encodeURIComponent(x.session);
+  supplementalPromise=(async()=>{
+    const urls=[
+      `/api/blackbox/futures/diagnostics?product=${p}&session=${s}&v=${VER}`,
+      `/api/blackbox/futures/institutional?product=${p}`,
+      `/api/blackbox/futures/large-trader?product=${p}`,
+      `/api/blackbox/futures/margin?product=${p}`,
+      `/api/blackbox/futures/put-call-ratio`
+    ];
+    const [diagnostics,institutional,largeTrader,margin,pcr]=await Promise.all(urls.map(getJson));
+    supplementalCache={
+      ts:Date.now(),product:x.product,session:x.session,
+      data:{diagnostics,institutional,large_trader:largeTrader,margin,put_call_ratio:pcr}
+    };
+    return supplementalCache.data;
+  })().finally(()=>{supplementalPromise=null});
+  return supplementalPromise;
+}
+
+function buildFastMarketContext(){
+  const x=contractInfo();
+  const st=uiMarketState();
+  const same=supplementalCache.product===x.product && supplementalCache.session===x.session;
+  const age=same&&supplementalCache.ts?Date.now()-supplementalCache.ts:null;
+  const extra=same?supplementalCache.data:{};
   return {
     captured_at:new Date().toISOString(),
+    context_mode:'fast_ui_memory',
     product:x.product,
     contract:x.code,
     name:x.name,
     session:x.session,
     session_label:x.session_label,
-    market_open:diagnostics?.market_open ?? null,
-    quote,
-    diagnostics,
-    institutional,
-    large_trader:largeTrader,
-    margin,
-    put_call_ratio:pcr,
-    price_volume:priceVolume,
-    threshold,
-    timeframe_states:tfs,
+    market_open:st?.open ?? extra?.diagnostics?.market_open ?? null,
+    quote:uiQuoteSnapshot(),
+    threshold:uiThresholdSnapshot(),
+    timeframe_states:timeframeSnapshot(),
     analysis:analysisSnapshot(),
+    price_volume:uiPriceVolumeSnapshot(),
+    diagnostics:extra?.diagnostics||null,
+    institutional:extra?.institutional||null,
+    large_trader:extra?.large_trader||null,
+    margin:extra?.margin||null,
+    put_call_ratio:extra?.put_call_ratio||null,
+    supplemental_age_ms:age,
     ui_freshness_text:$('#marketStateSub')?.textContent?.trim()||null,
-    ui_data_badge:$('#dataBadge')?.textContent?.trim()||null
+    ui_data_badge:$('#dataBadge')?.textContent?.trim()||null,
+    ui_quote_time:$('#quoteTime')?.textContent?.trim()||null
   };
 }
 
@@ -198,6 +283,7 @@ function injectStyles(){
   .fchat-bubble{max-width:92%;white-space:pre-wrap;word-break:break-word;line-height:1.58;padding:9px 11px;border-radius:12px;font-size:14px}
   .fchat-msg.user .fchat-bubble{background:#0c5573;color:#fff;border-bottom-right-radius:4px}
   .fchat-msg.assistant .fchat-bubble{background:#111827;color:#e5edf3;border:1px solid #273449;border-bottom-left-radius:4px}
+  .fchat-msg.pending .fchat-bubble{background:#151c22;color:#9fd8ef;border:1px dashed #31596b}
   .fchat-inputbar{position:sticky;bottom:0;z-index:4;display:grid;grid-template-columns:1fr auto;gap:7px;padding:9px;background:#071014;border-top:1px solid #26404c}
   .fchat-input{width:100%;min-height:46px;max-height:120px;resize:none;background:#0d1720;color:#fff;border:1px solid #365260;border-radius:10px;padding:10px 11px;font:inherit;font-size:15px}
   .fchat-send{min-width:66px;border:0;border-radius:10px;background:#19aee8;color:#fff;font-weight:900;padding:0 12px}
@@ -270,7 +356,7 @@ function injectPanel(){
     <div id="fchatList" class="fchat-list"></div>
 
     <div id="fchatNote" class="fchat-note">
-      每次送出前會重新抓目前商品的官方/APP資料。這裡只協助判斷，不會替你下單。
+      送出會先用畫面中已更新的行情立即分析；法人/診斷等較慢資料在背景更新，不再每句都卡住。這裡只協助判斷，不會替你下單。
     </div>
 
     <div class="fchat-inputbar">
@@ -301,7 +387,7 @@ function injectPanel(){
     const btn=$('#fchatRefresh');
     if(btn){btn.disabled=true;btn.textContent='抓取中…'}
     try{
-      await buildMarketContext();
+      await refreshSupplemental(true);
       if(btn)btn.textContent='已更新';
       setTimeout(()=>{if(btn)btn.textContent='重抓資料'},900);
     }finally{
@@ -322,17 +408,22 @@ function injectPanel(){
 
 function renderHistory(){
   const box=$('#fchatList'); if(!box)return;
+  let html='';
   if(!history.length){
-    box.innerHTML=`<div class="fchat-empty">
+    html=`<div class="fchat-empty">
       這裡不是固定答案按鈕。你可以直接反駁我的判斷，或補上你看到的理由，我會用同一份當下資料跟你重新比較。<br><br>
       例如：「你叫我等，但3分量能放大，我覺得可以追。你漏了什麼？」
     </div>`;
-    return;
+  }else{
+    html=history.map(m=>`
+      <div class="fchat-msg ${m.role==='user'?'user':'assistant'}">
+        <div class="fchat-bubble">${esc(m.content)}</div>
+      </div>`).join('');
   }
-  box.innerHTML=history.map(m=>`
-    <div class="fchat-msg ${m.role==='user'?'user':'assistant'}">
-      <div class="fchat-bubble">${esc(m.content)}</div>
-    </div>`).join('');
+  if(pendingText){
+    html+=`<div class="fchat-msg assistant pending"><div class="fchat-bubble">${esc(pendingText)}</div></div>`;
+  }
+  box.innerHTML=html;
   box.scrollTop=box.scrollHeight;
 }
 
@@ -360,16 +451,22 @@ async function sendMessage(){
 
   history.push({role:'user',content:text});
   history=history.slice(-24);
+  pendingText='✓ 已收到｜直接用目前畫面行情分析中…';
   renderHistory();
   saveHistory();
 
   sending=true;
   const btn=$('#fchatSend');
-  if(btn){btn.disabled=true;btn.textContent='重抓＋分析…'}
+  if(btn){btn.disabled=true;btn.textContent='分析中…'}
+  const clientStarted=performance.now();
 
   try{
-    const market=await buildMarketContext();
+    // 不等待較慢的法人/診斷等 API；舊快取先用，新資料背景更新。
+    refreshSupplemental(false).catch(()=>{});
+    const market=buildFastMarketContext();
     const position=positionContext();
+    pendingText='✓ 已收到｜行情快照已帶入，等待回答…';
+    renderHistory();
 
     const r=await fetch('/api/blackbox/futures/chat',{
       method:'POST',
@@ -387,18 +484,23 @@ async function sendMessage(){
       ? (j.reply||'沒有回覆內容。')
       : `對話失敗：${j?.error||`HTTP ${r.status}`}${j?.detail?`\n${j.detail}`:''}`;
 
+    pendingText='';
     history.push({role:'assistant',content:reply});
     history=history.slice(-24);
     saveHistory();
     renderHistory();
 
+    const totalMs=Math.round(performance.now()-clientStarted);
     const st=$('#fchatStatus');
+    const serverMs=Number(j?.elapsed_ms);
+    const timing=Number.isFinite(serverMs)?`｜後端 ${(serverMs/1000).toFixed(1)}秒｜總 ${(totalMs/1000).toFixed(1)}秒`:`｜總 ${(totalMs/1000).toFixed(1)}秒`;
     if(st && j?.mode==='openai'){
-      st.textContent=`討論模式已連線｜${j.model||status.model||'model'}｜規則 ${j.decision_rules_version||'—'}`;
+      st.textContent=`討論模式已連線｜${j.model||status.model||'model'}${timing}`;
     }else if(st && j?.mode==='rules'){
-      st.textContent=`規則模式｜尚未接 OpenAI API｜規則 ${j.decision_rules_version||'—'}`;
+      st.textContent=`規則模式｜尚未接 OpenAI API${timing}`;
     }
   }catch(e){
+    pendingText='';
     history.push({role:'assistant',content:`對話失敗：${String(e)}`});
     saveHistory(); renderHistory();
   }finally{
@@ -411,12 +513,20 @@ function boot(){
   injectStyles();
   injectPanel();
 
+  // 頁面載入後先暖快取；使用者真正送出時不等它。
+  setTimeout(()=>refreshSupplemental(false).catch(()=>{}),700);
+
   document.addEventListener('click',e=>{
+    if(e.target.closest('#analysisBtn,#quoteAnalysisTrigger')){
+      setTimeout(()=>refreshSupplemental(false).catch(()=>{}),120);
+    }
     if(e.target.closest('#sessionDay,#sessionNight,#prevContract,#nextContract,#contractMenu button')){
+      supplementalCache={ts:0,product:null,session:null,data:{}};
       setTimeout(()=>{
         loadPosition();
         loadHistory();
         refreshStatus();
+        refreshSupplemental(false).catch(()=>{});
       },300);
     }
   });
