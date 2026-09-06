@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+import uuid
 from typing import Any, Literal
 
 import httpx
@@ -13,7 +16,8 @@ router = APIRouter(prefix="/api/blackbox/futures", tags=["futures-chat"])
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-sol")
 
-DECISION_RULES_VERSION = "20260906-discuss-v2"
+DECISION_RULES_VERSION = "20260906-chat-fast-v3"
+logger = logging.getLogger("futures_chat")
 
 SYSTEM_INSTRUCTIONS = """你是「市場雷達」內建的期貨交易討論助手。
 你不是單向報告機器，而是使用者的「判斷討論搭檔」：要能跟使用者來回辯證、指出漏看的風險、承認新證據會改變結論。
@@ -119,6 +123,15 @@ def _safe_num(v: Any):
     except Exception:
         return None
 
+
+
+def _audit(event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    try:
+        logger.info("CHAT_AUDIT %s", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    except Exception:
+        logger.info("CHAT_AUDIT %s", {"event": event, "audit_error": True})
+
 def _fallback_reply(message: str, market: dict[str, Any], position: dict[str, Any]) -> str:
     """Deterministic fallback. It must never masquerade as the AI discussion mode."""
     a = market.get("analysis") if isinstance(market.get("analysis"), dict) else {}
@@ -172,6 +185,8 @@ def futures_chat_status():
 
 @router.post("/chat")
 def futures_chat(req: FuturesChatRequest):
+    started = time.perf_counter()
+    request_id = uuid.uuid4().hex[:10]
     market = _clip(req.market)
     position = _clip(req.position.model_dump())
     history = [
@@ -179,17 +194,45 @@ def futures_chat(req: FuturesChatRequest):
         for x in req.history[-16:]
     ]
 
+    market_dict = market if isinstance(market, dict) else {}
+    position_dict = position if isinstance(position, dict) else {}
+    product = str(market_dict.get("product") or "—")
+    session = str(market_dict.get("session") or "—")
     api_key = os.getenv("OPENAI_API_KEY")
+    mode = "openai" if api_key else "rules"
+
+    _audit(
+        "received",
+        request_id=request_id,
+        product=product,
+        session=session,
+        mode=mode,
+        message_len=len(req.message),
+        history_count=len(history),
+        market_captured_at=market_dict.get("captured_at"),
+        supplemental_age_ms=market_dict.get("supplemental_age_ms"),
+    )
+
     if not api_key:
+        reply = _fallback_reply(req.message, market_dict, position_dict)
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        _audit(
+            "completed",
+            request_id=request_id,
+            product=product,
+            session=session,
+            ok=True,
+            mode="rules",
+            elapsed_ms=elapsed_ms,
+            reply_len=len(reply),
+        )
         return {
             "ok": True,
             "mode": "rules",
+            "request_id": request_id,
+            "elapsed_ms": elapsed_ms,
             "decision_rules_version": DECISION_RULES_VERSION,
-            "reply": _fallback_reply(
-                req.message,
-                market if isinstance(market, dict) else {},
-                position if isinstance(position, dict) else {},
-            ),
+            "reply": reply,
         }
 
     input_text = (
@@ -212,6 +255,7 @@ def futures_chat(req: FuturesChatRequest):
         "store": False,
     }
 
+    openai_started = time.perf_counter()
     try:
         with httpx.Client(timeout=60, follow_redirects=True) as client:
             r = client.post(
@@ -222,15 +266,31 @@ def futures_chat(req: FuturesChatRequest):
                 },
                 json=payload,
             )
+        openai_ms = round((time.perf_counter() - openai_started) * 1000, 1)
         if r.status_code >= 400:
             detail = ""
             try:
                 detail = (r.json().get("error") or {}).get("message") or ""
             except Exception:
                 pass
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+            _audit(
+                "completed",
+                request_id=request_id,
+                product=product,
+                session=session,
+                ok=False,
+                mode="openai",
+                elapsed_ms=elapsed_ms,
+                openai_ms=openai_ms,
+                status_code=r.status_code,
+            )
             return {
                 "ok": False,
                 "mode": "openai",
+                "request_id": request_id,
+                "elapsed_ms": elapsed_ms,
+                "openai_ms": openai_ms,
                 "error": f"OpenAI API HTTP {r.status_code}",
                 "detail": detail[:700],
             }
@@ -238,22 +298,69 @@ def futures_chat(req: FuturesChatRequest):
         data = r.json()
         reply = _extract_output_text(data)
         if not reply:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+            _audit(
+                "completed",
+                request_id=request_id,
+                product=product,
+                session=session,
+                ok=False,
+                mode="openai",
+                elapsed_ms=elapsed_ms,
+                openai_ms=openai_ms,
+                error="no_output_text",
+            )
             return {
                 "ok": False,
                 "mode": "openai",
+                "request_id": request_id,
+                "elapsed_ms": elapsed_ms,
+                "openai_ms": openai_ms,
                 "error": "OpenAI API 沒有回傳文字內容",
             }
 
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        _audit(
+            "completed",
+            request_id=request_id,
+            product=product,
+            session=session,
+            ok=True,
+            mode="openai",
+            model=payload["model"],
+            elapsed_ms=elapsed_ms,
+            openai_ms=openai_ms,
+            reply_len=len(reply),
+        )
         return {
             "ok": True,
             "mode": "openai",
             "model": payload["model"],
+            "request_id": request_id,
+            "elapsed_ms": elapsed_ms,
+            "openai_ms": openai_ms,
             "decision_rules_version": DECISION_RULES_VERSION,
             "reply": reply,
         }
     except Exception as exc:
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        openai_ms = round((time.perf_counter() - openai_started) * 1000, 1)
+        _audit(
+            "completed",
+            request_id=request_id,
+            product=product,
+            session=session,
+            ok=False,
+            mode="openai",
+            elapsed_ms=elapsed_ms,
+            openai_ms=openai_ms,
+            error=type(exc).__name__,
+        )
         return {
             "ok": False,
             "mode": "openai",
+            "request_id": request_id,
+            "elapsed_ms": elapsed_ms,
+            "openai_ms": openai_ms,
             "error": f"{type(exc).__name__}: {exc}",
         }

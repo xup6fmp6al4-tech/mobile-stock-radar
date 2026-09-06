@@ -19,7 +19,7 @@ app.include_router(chat_router)
 PATCHES = [
     "/static/futures-display-patch.js?v=20260906-official-1m-3",
     "/static/futures-complete-patch.js?v=20260906-complete-3",
-    "/static/futures-chat-patch.js?v=20260906-chat-discuss-2",
+    "/static/futures-chat-patch.js?v=20260906-chat-fast-3",
 ]
 
 INLINE_PV_FIX = r"""
