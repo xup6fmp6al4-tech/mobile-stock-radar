@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const VER = '20260906-chat-fast-3';
+const VER = '20260906-chat-general-4';
 const $ = (s, r=document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -222,6 +222,16 @@ async function refreshSupplemental(force=false){
   return supplementalPromise;
 }
 
+function looksWeatherText(text){
+  return /(天氣|下雨|降雨|溫度|氣溫|熱不熱|冷不冷|會不會下雨)/.test(String(text||''));
+}
+
+function looksTradingText(text){
+  const t=String(text||'').trim();
+  if(/(期貨|台指|臺指|小台|小臺|微台|微臺|TX|MTX|TMF|做多|做空|追多|追空|多單|空單|持倉|停損|停利|進場|出場|K線|3分|6分|9分|量能|法人|外資|分價|POC|突破|回測|大盤)/i.test(t)) return true;
+  return /^(買|賣|等)$/.test(t) || /(要不要買|要不要賣|現在買|現在賣|能買嗎|能空嗎)/.test(t);
+}
+
 function buildFastMarketContext(){
   const x=contractInfo();
   const st=uiMarketState();
@@ -274,8 +284,8 @@ function injectStyles(){
   .fchat-pos-grid textarea{min-height:54px;resize:vertical}
   .fchat-pos-wide{grid-column:1/-1}
   .fchat-pos-summary{margin-top:6px;color:#d6e4ea;font-size:12px}
-  .fchat-quick{display:flex;gap:6px;overflow:auto;padding:8px 10px;border-bottom:1px solid #13252d}
-  .fchat-quick button{flex:0 0 auto;border:1px solid #2c6e89;background:#0c2b39;color:#d9f4ff;border-radius:999px;padding:7px 10px;font-size:13px}
+  .fchat-quick{display:flex;align-items:center;gap:6px;overflow:auto;padding:8px 10px;border-bottom:1px solid #13252d}
+  .fchat-quick-label{flex:0 0 auto;color:#7f929b;font-size:12px}.fchat-quick button{flex:0 0 auto;border:1px solid #2c6e89;background:#0c2b39;color:#d9f4ff;border-radius:999px;padding:7px 10px;font-size:13px}
   .fchat-list{max-height:330px;overflow:auto;padding:10px;background:#05090b}
   .fchat-empty{color:#7f929b;font-size:13px;line-height:1.6;padding:5px 2px}
   .fchat-msg{display:flex;margin:7px 0}
@@ -305,7 +315,7 @@ function injectPanel(){
   panel.innerHTML=`
     <div class="fchat-head">
       <div>
-        <strong>💬 討論買賣判斷</strong>
+        <strong>💬 跟我聊／市場判斷</strong>
         <div id="fchatStatus" class="fchat-status">檢查連線…</div>
       </div>
       <div class="fchat-actions">
@@ -315,8 +325,8 @@ function injectPanel(){
     </div>
 
     <div class="fchat-rules">
-      固定共同規則：TAIFEX官方為基準｜缺資料不造假｜可以反駁我、我也會反駁你｜
-      新證據足夠時我會明確改判｜訊號%不是保證獲利率。
+      你可以正常聊天；只有問到期貨／買賣時，我才帶入市場資料。快捷鍵只是捷徑，不是限制。<br>
+      交易規則：TAIFEX官方為基準｜缺資料不造假｜新證據足夠時才改判｜訊號%不是保證獲利率。
     </div>
 
     <details class="fchat-pos">
@@ -345,6 +355,7 @@ function injectPanel(){
     </details>
 
     <div class="fchat-quick">
+      <span class="fchat-quick-label">快捷：</span>
       <button data-q="現在要買、賣、還是等？請跟我討論理由。">買/賣/等？</button>
       <button data-q="我覺得現在可以追多。你同意嗎？不同意就直接反駁我。">反駁我：追多</button>
       <button data-q="我覺得現在可以做空。你同意嗎？不同意就直接反駁我。">反駁我：做空</button>
@@ -356,12 +367,12 @@ function injectPanel(){
     <div id="fchatList" class="fchat-list"></div>
 
     <div id="fchatNote" class="fchat-note">
-      送出會先用畫面中已更新的行情立即分析；法人/診斷等較慢資料在背景更新，不再每句都卡住。這裡只協助判斷，不會替你下單。
+      一般聊天不會硬塞持倉。問交易才帶行情；問台灣主要城市天氣會走即時天氣資料。交易功能只協助判斷，不會替你下單。
     </div>
 
     <div class="fchat-inputbar">
       <textarea id="fchatInput" class="fchat-input" rows="1"
-        placeholder="直接跟我辯。例如：量能2.3倍，我覺得應該追多，你為什麼不同意？"></textarea>
+        placeholder="什麼都可以講。問期貨時我會自動帶入行情；也可以問：高雄今天天氣如何？"></textarea>
       <button id="fchatSend" class="fchat-send">送出</button>
     </div>
   `;
@@ -411,8 +422,8 @@ function renderHistory(){
   let html='';
   if(!history.length){
     html=`<div class="fchat-empty">
-      這裡不是固定答案按鈕。你可以直接反駁我的判斷，或補上你看到的理由，我會用同一份當下資料跟你重新比較。<br><br>
-      例如：「你叫我等，但3分量能放大，我覺得可以追。你漏了什麼？」
+      直接跟我講就可以，不用按快捷鍵。一般聊天不會硬塞期貨；問到市場時我才帶入行情。<br><br>
+      例如：「現在怎麼看？」、「你剛剛算錯了吧？」、「高雄今天天氣如何？」都可以。
     </div>`;
   }else{
     html=history.map(m=>`
@@ -434,8 +445,8 @@ async function refreshStatus(){
     status=j||status;
     if(el){
       el.textContent=j?.ai_connected
-        ? `討論模式已連線｜${j.model||'model'}｜規則 ${j.decision_rules_version||'—'}`
-        : `規則模式｜尚未接 OpenAI API｜規則 ${j?.decision_rules_version||'—'}`;
+        ? `AI聊天已連線｜${j.model||'model'}｜規則 ${j.decision_rules_version||'—'}`
+        : `一般聊天＋交易規則｜尚未接 OpenAI API｜規則 ${j?.decision_rules_version||'—'}`;
     }
   }catch(_){
     if(el)el.textContent='對話狀態讀取失敗';
@@ -451,21 +462,25 @@ async function sendMessage(){
 
   history.push({role:'user',content:text});
   history=history.slice(-24);
-  pendingText='✓ 已收到｜直接用目前畫面行情分析中…';
+  pendingText='✓ 已收到｜處理中…';
   renderHistory();
   saveHistory();
 
   sending=true;
   const btn=$('#fchatSend');
-  if(btn){btn.disabled=true;btn.textContent='分析中…'}
+  if(btn){btn.disabled=true;btn.textContent='回覆中…'}
   const clientStarted=performance.now();
 
   try{
-    // 不等待較慢的法人/診斷等 API；舊快取先用，新資料背景更新。
-    refreshSupplemental(false).catch(()=>{});
+    const trading=looksTradingText(text);
+    const weather=looksWeatherText(text);
+    // 只有交易問題才暖市場慢資料；一般聊天不再浪費時間抓法人/診斷。
+    if(trading) refreshSupplemental(false).catch(()=>{});
     const market=buildFastMarketContext();
     const position=positionContext();
-    pendingText='✓ 已收到｜行情快照已帶入，等待回答…';
+    pendingText=trading
+      ? '✓ 已收到｜行情快照已帶入，等待回答…'
+      : (weather ? '✓ 已收到｜查天氣／回覆中…' : '✓ 已收到｜回覆中…');
     renderHistory();
 
     const r=await fetch('/api/blackbox/futures/chat',{
@@ -495,9 +510,10 @@ async function sendMessage(){
     const serverMs=Number(j?.elapsed_ms);
     const timing=Number.isFinite(serverMs)?`｜後端 ${(serverMs/1000).toFixed(1)}秒｜總 ${(totalMs/1000).toFixed(1)}秒`:`｜總 ${(totalMs/1000).toFixed(1)}秒`;
     if(st && j?.mode==='openai'){
-      st.textContent=`討論模式已連線｜${j.model||status.model||'model'}${timing}`;
+      st.textContent=`AI聊天已連線｜${j.model||status.model||'model'}${timing}`;
     }else if(st && j?.mode==='rules'){
-      st.textContent=`規則模式｜尚未接 OpenAI API${timing}`;
+      const label=j?.intent==='trading'?'交易規則':(j?.intent==='weather'?'即時天氣':'一般聊天');
+      st.textContent=`${label}｜尚未接 OpenAI API${timing}`;
     }
   }catch(e){
     pendingText='';
