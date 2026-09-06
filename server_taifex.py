@@ -1,19 +1,19 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from futures_1m_archive import router as one_minute_router
 from taifex_overlay import router as taifex_router
 from futures_full_data import router as full_data_router
 from server import app as legacy_app, STATIC_DIR
 
-# 公開即時行情／五檔／法人／市場結構資料由 full_data_router 補齊；
-# 原有 TAIFEX OpenAPI + Yahoo fallback/K線/黑盒資料維持不變。
+# 1分K專用路由先掛上：同一路徑 /intraday-bars 會優先走真實1分持久化/官方逐筆回填版本。
 app = FastAPI(title="Mobile Stock Radar - TAIFEX Full Data")
+app.include_router(one_minute_router)
 app.include_router(full_data_router)
 app.include_router(taifex_router)
 
 # 直接把最新版期貨補丁寫進首頁 HTML 回應，不再依賴 Service Worker 才載入。
-# 這可避免手機仍吃到舊 SW / 舊 JS 時，1分與5分新資料管線根本沒有執行。
-PATCH_SRC = "/static/futures-display-patch.js?v=20260906-intraday-direct-2"
+PATCH_SRC = "/static/futures-display-patch.js?v=20260906-official-1m-3"
 
 
 @app.get("/", include_in_schema=False)
