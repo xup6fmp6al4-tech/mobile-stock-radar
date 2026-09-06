@@ -3,12 +3,15 @@ from fastapi.responses import HTMLResponse
 
 from futures_1m_archive import router as one_minute_router
 from futures_profile import router as profile_router
+from futures_acceptance import router as acceptance_router
 from taifex_overlay import router as taifex_router
 from futures_full_data import router as full_data_router
 from server import app as legacy_app, STATIC_DIR
 
 app = FastAPI(title="Mobile Stock Radar - TAIFEX Full Data")
 
+# Acceptance first: its corrected /large-trader route must take precedence.
+app.include_router(acceptance_router)
 app.include_router(one_minute_router)
 app.include_router(profile_router)
 app.include_router(full_data_router)
@@ -18,6 +21,7 @@ PATCHES = [
     "/static/futures-display-patch.js?v=20260906-official-1m-3",
     "/static/futures-complete-patch.js?v=20260906-complete-3",
     "/static/futures-fast-analysis-patch.js?v=20260907-fast-analysis-1",
+    "/static/futures-acceptance-patch.js?v=20260907-acceptance-1",
 ]
 
 INLINE_PV_FIX = r"""
