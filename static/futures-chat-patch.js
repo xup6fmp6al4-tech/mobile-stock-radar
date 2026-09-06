@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const VER = '20260906-chat-general-4';
+const VER = '20260906-chat-context-5';
 const $ = (s, r=document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -229,7 +229,12 @@ function looksWeatherText(text){
 function looksTradingText(text){
   const t=String(text||'').trim();
   if(/(期貨|台指|臺指|小台|小臺|微台|微臺|TX|MTX|TMF|做多|做空|追多|追空|多單|空單|持倉|停損|停利|進場|出場|K線|3分|6分|9分|量能|法人|外資|分價|POC|突破|回測|大盤)/i.test(t)) return true;
-  return /^(買|賣|等)$/.test(t) || /(要不要買|要不要賣|現在買|現在賣|能買嗎|能空嗎)/.test(t);
+  if(/^(買|賣|等|多|空)$/.test(t)) return true;
+  if(/(要不要買|要不要賣|現在買|現在賣|能買嗎|能空嗎|買了會怎樣|賣了會怎樣|買了呢|賣了呢|可以買嗎|可以賣嗎|要跑嗎|要追嗎)/.test(t)) return true;
+  const recent=history.slice(-6).map(x=>x.content||'').join(' ');
+  const recentTrade=/(期貨|台指|小台|微台|現價|持倉|訊號|市場休息|買\/賣\/等|做多|做空|停損)/.test(recent);
+  const shortFollow=t.length<=18 && /(買|賣|多|空|現在|怎樣|如何|呢|會不會)/.test(t);
+  return !!(shortFollow && recentTrade);
 }
 
 function buildFastMarketContext(){
@@ -325,7 +330,7 @@ function injectPanel(){
     </div>
 
     <div class="fchat-rules">
-      你可以正常聊天；只有問到期貨／買賣時，我才帶入市場資料。快捷鍵只是捷徑，不是限制。<br>
+      有接 AI 時可以自由聊天；沒接 AI 時不再假裝會聊，只處理期貨／持倉／即時天氣。快捷鍵只是捷徑。<br>
       交易規則：TAIFEX官方為基準｜缺資料不造假｜新證據足夠時才改判｜訊號%不是保證獲利率。
     </div>
 
@@ -367,12 +372,12 @@ function injectPanel(){
     <div id="fchatList" class="fchat-list"></div>
 
     <div id="fchatNote" class="fchat-note">
-      一般聊天不會硬塞持倉。問交易才帶行情；問台灣主要城市天氣會走即時天氣資料。交易功能只協助判斷，不會替你下單。
+      沒接 OpenAI API 時：不再用固定台詞冒充聊天；看不懂就明說。期貨／持倉／台灣主要城市天氣仍可用。交易功能只協助判斷，不會替你下單。
     </div>
 
     <div class="fchat-inputbar">
       <textarea id="fchatInput" class="fchat-input" rows="1"
-        placeholder="什麼都可以講。問期貨時我會自動帶入行情；也可以問：高雄今天天氣如何？"></textarea>
+        placeholder="直接講。像『買了會怎樣？』會接目前期貨；天氣也可問。完整自由聊天需 OpenAI API。"></textarea>
       <button id="fchatSend" class="fchat-send">送出</button>
     </div>
   `;
@@ -422,8 +427,8 @@ function renderHistory(){
   let html='';
   if(!history.length){
     html=`<div class="fchat-empty">
-      直接跟我講就可以，不用按快捷鍵。一般聊天不會硬塞期貨；問到市場時我才帶入行情。<br><br>
-      例如：「現在怎麼看？」、「你剛剛算錯了吧？」、「高雄今天天氣如何？」都可以。
+      直接講就可以，不用按快捷鍵。像「買了會怎樣？」會沿用目前期貨上下文；「高雄今天天氣如何？」走即時天氣。<br><br>
+      尚未接 OpenAI API 時，真正的自由聊天不會假裝會；看不懂就直接說看不懂。
     </div>`;
   }else{
     html=history.map(m=>`
@@ -446,7 +451,7 @@ async function refreshStatus(){
     if(el){
       el.textContent=j?.ai_connected
         ? `AI聊天已連線｜${j.model||'model'}｜規則 ${j.decision_rules_version||'—'}`
-        : `一般聊天＋交易規則｜尚未接 OpenAI API｜規則 ${j?.decision_rules_version||'—'}`;
+        : `AI未連線｜期貨規則＋天氣可用｜規則 ${j?.decision_rules_version||'—'}`;
     }
   }catch(_){
     if(el)el.textContent='對話狀態讀取失敗';
@@ -512,8 +517,8 @@ async function sendMessage(){
     if(st && j?.mode==='openai'){
       st.textContent=`AI聊天已連線｜${j.model||status.model||'model'}${timing}`;
     }else if(st && j?.mode==='rules'){
-      const label=j?.intent==='trading'?'交易規則':(j?.intent==='weather'?'即時天氣':'一般聊天');
-      st.textContent=`${label}｜尚未接 OpenAI API${timing}`;
+      const label=j?.intent==='trading'?'交易規則':(j?.intent==='weather'?'即時天氣':'AI未連線');
+      st.textContent=`${label}｜自由聊天未啟用${timing}`;
     }
   }catch(e){
     pendingText='';
