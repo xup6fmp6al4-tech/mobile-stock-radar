@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 
 from taifex_overlay import router as taifex_router
+from futures_full_data import router as full_data_router
 from server import app as legacy_app
 
-# 外層只攔截期貨資料 API：TAIFEX OpenAPI 優先，Yahoo 只做備援。
-# 其他既有頁面、靜態檔與股票功能全部交回原 server，避免破壞已完成 UI。
-app = FastAPI(title="Mobile Stock Radar - TAIFEX Primary")
+# 公開即時行情／五檔／法人／市場結構資料由 full_data_router 補齊；
+# 原有 TAIFEX OpenAPI + Yahoo fallback/K線/黑盒資料維持不變。
+app = FastAPI(title="Mobile Stock Radar - TAIFEX Full Data")
+app.include_router(full_data_router)
 app.include_router(taifex_router)
 app.mount("/", legacy_app)
